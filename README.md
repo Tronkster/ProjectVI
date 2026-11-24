@@ -15,8 +15,8 @@ Open-source multiplayer mod for GTA VI on PC, built for the Xbox version running
 | Launcher: server content downloads, checked by checksum | ✅ Works |
 | Launcher: public mods (browse, install, update, turn on and off) | ✅ Works with the dev registry. The public registry isn't published yet |
 | Launcher: friends by friend code, online status, join a friend's server | ✅ Works. Shows the server a friend joined; in-game presence waits for the client |
-| Launcher: Windows installer | ✅ Builds and runs |
-| Launcher: auto-update | 🟡 Untested until the first GitHub release |
+| Launcher: Windows installer | ✅ Builds, and is published on GitHub Releases by the Release workflow |
+| Launcher: auto-update | ✅ Works: an installed 0.3.0 found 0.4.0, downloaded it, installed it on restart and came back as 0.4.0 |
 | Master server: server list, login, favorites, friends | ✅ Works |
 | Game server: config, resources, content hosting, listing | ✅ Works |
 | **Client mod: actually joining a game** | ❌ Not started. It needs reverse engineering of the emulated game |
