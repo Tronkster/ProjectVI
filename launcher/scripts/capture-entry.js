@@ -43,6 +43,7 @@ app.on("browser-window-created", (_event, win) => {
   win.webContents.once("did-finish-load", async () => {
     await wait(2500);
     for (const step of STEPS) {
+      if (step.main) await step.main(win); // runs in the main process, for steps that need Node
       if (step.run) await win.webContents.executeJavaScript(step.run);
       await wait(step.wait ?? 600);
       fs.writeFileSync(path.join(out, `${step.name}.png`), (await win.webContents.capturePage()).toPNG());

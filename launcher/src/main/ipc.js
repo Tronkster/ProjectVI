@@ -110,6 +110,7 @@ function registerIpc(ctx) {
   const auth = createAuth({
     getSettings: () => store.get(),
     tokenStore: createTokenStore(path.join(app.getPath("userData"), "session.bin"), safeStorage, logger),
+    guestStore: createTokenStore(path.join(app.getPath("userData"), "guest.bin"), safeStorage, logger),
     openExternal: (url) => shell.openExternal(url),
     logger
   });
@@ -153,6 +154,37 @@ function registerIpc(ctx) {
   });
   handle("auth:cancel", () => auth.cancelLogin());
   handle("auth:logout", () => auth.logout());
+
+  // ---- Friends ----
+  // Presence: while the launcher is open and the player has a friends account, tell the master
+  // server every minute that we're online, and which server we joined while the emulator runs.
+  let playingOn = "";
+  async function reportPresence() {
+    if (!auth.hasFriendsAccount()) return;
+    const name = validatePlayerName(store.get().playerName);
+    const r = await auth.reportPresence(name.ok ? name.name : "", playingOn);
+    if (!r.ok && !r.offline) logger.warn("Presence update failed", { error: r.error });
+  }
+  setInterval(reportPresence, 60_000).unref();
+  reportPresence();
+
+  const FRIEND_ID = /^\d{1,15}$/;
+  const byId = (fn) => (id) => (typeof id === "string" && FRIEND_ID.test(id) ? fn(id) : { ok: false, error: "Unknown player." });
+  handle("friends:list", async () => ({ ...(await auth.friends()), hasAccount: auth.hasFriendsAccount() }));
+  handle("friends:start", async () => {
+    const name = validatePlayerName(store.get().playerName);
+    if (!name.ok) return { ok: false, needsName: true, error: "Set an in-game name first. Friends see it." };
+    const r = await auth.startGuest(name.name);
+    if (r.ok) await reportPresence();
+    return r;
+  });
+  handle("friends:add", (code) => (typeof code === "string" && code.length <= 20
+    ? auth.addFriend(code)
+    : { ok: false, error: "Friend codes look like K7QP-2M9X." }));
+  handle("friends:accept", byId((id) => auth.acceptFriend(id)));
+  handle("friends:dropRequest", byId((id) => auth.dropRequest(id)));
+  handle("friends:remove", byId((id) => auth.removeFriend(id)));
+  handle("friends:resetCode", () => auth.resetFriendCode());
 
   // ---- Servers ----
   // The last list from the master server. Joins look servers up here, so the renderer
@@ -199,8 +231,17 @@ function registerIpc(ctx) {
   handle("join:cancel", () => join.cancel());
   handle("join:launch", async (serverId) => {
     const contentFile = join.clientManifestFor(serverId);
-    const result = await launchGame(store.get(), { serverId, contentFile, modsFile: mods.enabledListFile() });
-    if (result.ok) logger.info("Emulator started for a server", { server: serverId });
+    const result = await launchGame(store.get(), { serverId, contentFile, modsFile: mods.enabledListFile() }, () => {
+      if (playingOn === serverId) {
+        playingOn = "";
+        reportPresence();
+      }
+    });
+    if (result.ok) {
+      logger.info("Emulator started for a server", { server: serverId });
+      playingOn = serverId;
+      reportPresence();
+    }
     else logger.warn("Emulator didn't start", { error: result.error });
     return result;
   });

@@ -14,9 +14,10 @@ Open-source multiplayer mod for GTA VI on PC, built for the Xbox version running
 | Launcher: optional Discord login with favorites sync | 🟡 Works against a test Discord. Real Discord is untested until a Discord app is set up |
 | Launcher: server content downloads, checked by checksum | ✅ Works |
 | Launcher: public mods (browse, install, update, turn on and off) | ✅ Works with the dev registry. The public registry isn't published yet |
+| Launcher: friends by friend code, online status, join a friend's server | ✅ Works. Shows the server a friend joined; in-game presence waits for the client |
 | Launcher: Windows installer | ✅ Builds and runs |
 | Launcher: auto-update | 🟡 Untested until the first GitHub release |
-| Master server: server list, login, favorites | ✅ Works |
+| Master server: server list, login, favorites, friends | ✅ Works |
 | Game server: config, resources, content hosting, listing | ✅ Works |
 | **Client mod: actually joining a game** | ❌ Not started. It needs reverse engineering of the emulated game |
 
@@ -47,13 +48,13 @@ To use the example mods, turn on **Settings → Developer → Developer mode**, 
 | `npm test` | Runs every test |
 | `npm run lint` | Runs ESLint |
 | `npm run dist` | Builds `launcher/dist/ProjectVI-Setup-<version>.exe` |
-| `npm run capture -w launcher` | Screenshots of the main launcher screens |
+| `npm run capture -w launcher` | Screenshots of the main launcher screens (set `CAPTURE_STEPS=scripts/capture-friends.js` for the Friends screens) |
 
 ## Repository layout
 
 ```
 launcher/          Electron desktop app
-master-server/     Server list, Discord login and favorites sync (Node, no dependencies)
+master-server/     Server list, Discord login, favorites sync and friends (Node, no dependencies)
 server/            Reference game server
 registry/          Public mod registry format, validator and dev registry
 packages/shared/   Rules shared by everything: names, paths, content lists, registry format

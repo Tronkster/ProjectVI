@@ -1,6 +1,6 @@
 # Running a master server
 
-The master server keeps the public server list and, optionally, handles Discord login for the launcher. It needs Node 22.13 or newer and has no npm dependencies.
+The master server keeps the public server list, handles friends, and optionally Discord login for the launcher. It needs Node 22.13 or newer and has no npm dependencies.
 
 ```sh
 cd master-server
@@ -46,9 +46,12 @@ Only what's needed:
 
 | Table | Contents |
 | --- | --- |
-| `users` | Discord user id, username, display name, avatar hash, first and last login time |
+| `users` | Discord user id, username, display name, avatar hash, first and last login time. Guests: a random id and their in-game name. Everyone with friends: a friend code |
 | `sessions` | SHA-256 of each launcher session token (never the token itself), with a 90-day expiry |
 | `favorites` | Server ids a logged-in player starred, if they turned on favorites sync |
+| `friends`, `friend_requests` | Who is friends with whom, and requests waiting, with their times |
+
+Who is online and on which server is only kept in memory. Guest accounts are made when a player turns on friends without logging in; they are deleted once their session is gone, and merged into the Discord account when the guest logs in.
 
 Only Discord's `identify` scope is requested: no email, servers or friends.
 

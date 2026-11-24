@@ -9,8 +9,10 @@
 // Only Discord's "identify" scope is requested: id, username, display name and avatar.
 
 const crypto = require("node:crypto");
-const { send, redirect, page, readJson, bearerToken } = require("./http-util");
+const { clientIp, send, redirect, page, readJson, bearerToken } = require("./http-util");
+const { GUEST_SESSION_DAYS } = require("./db");
 
+const GUESTS_PER_HOUR = 10;
 const PENDING_MS = 10 * 60_000;
 const CODE_MS = 60_000;
 const B64URL = /^[A-Za-z0-9_-]+$/;
@@ -37,8 +39,21 @@ function createAuth({ db, discord, publicUrl, now }) {
   const codes = new Map(); // one-time code -> { userId, challenge, expires }
   const redirectUri = `${publicUrl.replace(/\/+$/, "")}/auth/discord/callback`;
 
+  const guestHits = new Map(); // ip -> { windowStart, count }
+  function guestLimited(ip) {
+    const t = now();
+    const entry = guestHits.get(ip);
+    if (!entry || t - entry.windowStart > 3_600_000) {
+      guestHits.set(ip, { windowStart: t, count: 1 });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > GUESTS_PER_HOUR;
+  }
+
   function sweep() {
     const t = now();
+    for (const [k, v] of guestHits) if (t - v.windowStart > 3_600_000) guestHits.delete(k);
     for (const [k, v] of pending) if (v.expires < t) pending.delete(k);
     for (const [k, v] of codes) if (v.expires < t) codes.delete(k);
     db.deleteExpiredSessions(t);
@@ -162,8 +177,35 @@ function createAuth({ db, discord, publicUrl, now }) {
         send(res, 400, { error: "That login code isn't valid anymore. Try logging in again." });
         return true;
       }
+      // A guest logging in brings its friends along. The guest account is gone afterwards.
+      const guest = typeof body.guestToken === "string" ? db.userForToken(body.guestToken, now()) : null;
+      if (guest?.provider === "guest") db.mergeGuestInto(guest.id, entry.userId, now());
       const token = db.createSession(entry.userId, now());
       send(res, 200, { token, user: publicUser(db.userForToken(token, now())) });
+      return true;
+    }
+
+    // Guest accounts exist so players without Discord can have friends. Nothing but a name is stored.
+    if (req.method === "POST" && pathname === "/auth/guest") {
+      if (guestLimited(clientIp(req))) {
+        send(res, 429, { error: "Too many new guest accounts from this address. Try again in an hour." });
+        return true;
+      }
+      let body;
+      try {
+        body = await readJson(req);
+      } catch (err) {
+        send(res, 400, { error: err.message });
+        return true;
+      }
+      const name = typeof body.name === "string" ? body.name.replace(/\p{Cc}/gu, "").trim().slice(0, 32) : "";
+      if (!name) {
+        send(res, 400, { error: "name is required (1-32 characters)." });
+        return true;
+      }
+      const user = db.createGuest(name, now());
+      const token = db.createSession(user.id, now(), GUEST_SESSION_DAYS);
+      send(res, 200, { token, user: publicUser(user) });
       return true;
     }
 
@@ -210,7 +252,7 @@ function createAuth({ db, discord, publicUrl, now }) {
     return false;
   }
 
-  return { handle, sweep };
+  return { handle, sweep, sessionUser };
 }
 
-module.exports = { createAuth };
+module.exports = { createAuth, publicUser };

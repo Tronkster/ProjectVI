@@ -36,6 +36,7 @@ async function setup() {
   });
   return {
     auth,
+    masterBase,
     tokens,
     setBrowser: (fn) => { browser = fn; },
     cleanup: async () => { await close(master); await close(discord); }
@@ -100,6 +101,41 @@ test("a callback with the wrong state is refused", async () => {
     const result = await s.auth.login();
     assert.equal(result.ok, false);
     assert.match(result.error, /didn't finish/);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("friends work as a guest and move to the Discord account on login", async () => {
+  const s = await setup();
+  try {
+    assert.equal(s.auth.hasFriendsAccount(), false);
+    assert.equal((await s.auth.friends()).noAccount, true);
+
+    assert.equal((await s.auth.startGuest("Kai")).ok, true);
+    assert.equal(s.auth.hasFriendsAccount(), true);
+    const mine = await s.auth.friends();
+    assert.equal(mine.ok, true);
+    assert.equal(mine.friends.length, 0);
+
+    // A second launcher, also a guest.
+    const other = createAuth({ getSettings: () => ({ masterUrl: s.masterBase }), tokenStore: memoryTokens(), openExternal() {}, logger: silent });
+    await other.startGuest("Ana");
+    const sent = await other.addFriend(mine.code);
+    assert.equal(sent.result, "sent");
+    const request = (await s.auth.friends()).incoming[0];
+    assert.equal(request.name, "Ana");
+    assert.equal((await s.auth.acceptFriend(request.id)).friends[0].name, "Ana");
+
+    assert.equal((await other.reportPresence("Ana", "")).ok, true);
+    assert.equal((await s.auth.friends()).friends[0].online, true);
+
+    s.setBrowser(approvingBrowser);
+    assert.equal((await s.auth.login()).ok, true);
+    const after = await s.auth.friends(); // now as the Discord account
+    assert.deepEqual(after.friends.map((f) => f.name), ["Ana"]);
+    assert.notEqual(after.code, mine.code);
+    assert.equal((await other.friends()).friends[0].name, "Kai");
   } finally {
     await s.cleanup();
   }
