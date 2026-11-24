@@ -11,7 +11,7 @@ Open-source multiplayer mod for GTA VI on PC, built for the Xbox version running
 | Part | State |
 | --- | --- |
 | Launcher: server browser, favorites, settings, profile | ✅ Works |
-| Launcher: optional Discord login with favorites sync | 🟡 Works against a test Discord. Real Discord is untested until a Discord app is set up |
+| Launcher: optional Discord login with favorites sync | ❌ DC. |
 | Launcher: server content downloads, checked by checksum | ✅ Works |
 | Launcher: public mods (browse, install, update, turn on and off) | ✅ Works with the dev registry. The public registry isn't published yet |
 | Launcher: friends by friend code, online status, join a friend's server | ✅ Works. Shows the server a friend joined; in-game presence waits for the client |
