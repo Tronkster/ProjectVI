@@ -37,9 +37,31 @@ jobs:
       - run: npm run lint
       - run: npm test
 
+      # electron-builder uploads its files in parallel, and each upload creates the release if it
+      # doesn't exist yet, which left two drafts for v0.3.0. Creating the draft first means every
+      # upload finds the same one.
+      - name: Create the draft release
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "ProjectVI ${GITHUB_REF_NAME#v}" --notes "Download ProjectVI-Setup-${GITHUB_REF_NAME#v}.exe below."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and publish the installer
         working-directory: launcher
         shell: bash # PowerShell would split the -c.publish.* arguments
         run: npx electron-builder --win --publish always -c.publish.provider=github -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish only once the installer, blockmap and latest.yml are all uploaded, so auto-update
+      # never sees a release without its files.
+      - name: Publish the release
+        shell: bash
+        run: |
+          assets=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '[.assets[].name] | join(" ")')
+          for f in "ProjectVI-Setup-${GITHUB_REF_NAME#v}.exe" "ProjectVI-Setup-${GITHUB_REF_NAME#v}.exe.blockmap" latest.yml; do
+            case " $assets " in *" $f "*) ;; *) echo "Missing $f on the release."; exit 1 ;; esac
+          done
+          gh release edit "$GITHUB_REF_NAME" --draft=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
