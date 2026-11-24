@@ -50,7 +50,7 @@ A player in these lists is `{ id, name, avatarUrl, provider }`. Friends also hav
 - Friend codes are 8 characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, shown as `K7QP-2M9X`. Case, spaces and dashes are ignored when typed. There's no search by name.
 - Sending a request to someone who already asked you makes you friends straight away.
 - Limits: 200 friends, 50 requests waiting, 30 requests sent an hour.
-- The launcher reports presence every 60 seconds while it's open and the player has a friends account, with `serverId` set while the emulator runs for a server. A player counts as offline 150 seconds after the last report. `server` is only shown for servers on the master server's list, so a friend's server can be joined with the normal join flow. Presence is kept in memory, never stored.
+- The launcher reports presence every 60 seconds while it's open and the player has a friends account, with `serverId` set while the emulator runs for a server, unless the player turned off "Show friends which server I'm on" in Settings. A player counts as offline 150 seconds after the last report. `server` is only shown for servers on the master server's list, so a friend's server can be joined with the normal join flow. Presence is kept in memory, never stored.
 - A guest's `name` is the in-game name it last reported. Discord players show their Discord display name.
 
 ## Game server (HTTP on the game port)
