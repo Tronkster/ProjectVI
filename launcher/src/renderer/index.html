@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'none'">
+  <title>ProjectVI</title>
+  <link rel="stylesheet" href="fonts/archivo/wdth.css">
+  <link rel="stylesheet" href="fonts/jetbrains-mono/400.css">
+  <link rel="stylesheet" href="fonts/jetbrains-mono/500.css">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="titlebar">
+    <div class="title">ProjectVI <span class="version" id="version"></span></div>
+    <div class="titlebar-right">
+      <div class="profile">
+        <button type="button" class="profile-chip" id="profile-chip" aria-haspopup="menu" aria-expanded="false">
+          <span class="avatar" id="profile-avatar"></span>
+          <span id="profile-name">Set your name</span>
+          <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 4l3 3 3-3"/></svg>
+        </button>
+        <div class="menu" id="profile-menu" role="menu" hidden>
+          <div class="menu-head">
+            <span class="avatar avatar-lg" id="menu-avatar"></span>
+            <div>
+              <strong id="menu-name"></strong>
+              <span id="menu-sub">Guest</span>
+            </div>
+          </div>
+          <button type="button" role="menuitem" data-go="settings:profile">Edit profile</button>
+          <button type="button" role="menuitem" data-go="settings">Settings</button>
+          <div id="menu-account-items"></div>
+        </div>
+      </div>
+      <div class="winctl">
+        <button type="button" id="win-min" aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5h10"/></svg></button>
+        <button type="button" id="win-max" aria-label="Maximize">
+          <svg viewBox="0 0 10 10" class="icon-max"><rect x="0.5" y="0.5" width="9" height="9"/></svg>
+          <svg viewBox="0 0 10 10" class="icon-restore" hidden><rect x="0.5" y="2.5" width="7" height="7"/><path d="M2.5 2.5V0.5h7v7h-2"/></svg>
+        </button>
+        <button type="button" id="win-close" class="close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"/></svg></button>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="rail" aria-label="Main">
+      <button type="button" class="rail-btn" data-view="servers" aria-label="Servers" title="Servers">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      </button>
+      <button type="button" class="rail-btn" data-view="favorites" aria-label="Favorites" title="Favorites">
+        <svg viewBox="0 0 24 24"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>
+      </button>
+      <button type="button" class="rail-btn" data-view="mods" aria-label="Mods" title="Mods">
+        <svg viewBox="0 0 24 24"><path d="M3 7.5L12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5l9 4.5 9-4.5M12 12v9"/></svg>
+      </button>
+      <button type="button" class="rail-btn push" data-view="settings" aria-label="Settings" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>
+      </button>
+    </nav>
+
+    <main class="content" id="content">
+      <!-- Servers -->
+      <section class="view" id="view-servers" hidden>
+        <div class="view-head">
+          <div>
+            <h1>Servers</h1>
+            <p class="sub" id="servers-sub">Loading servers…</p>
+          </div>
+          <div class="head-actions">
+            <label class="select">
+              <span>Sort</span>
+              <select id="sort">
+                <option value="players">Most players</option>
+                <option value="ping">Lowest ping</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+            <button type="button" class="icon-btn" id="refresh" aria-label="Refresh" title="Refresh (F5)">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="featured"></div>
+        <div class="toolbar">
+          <div class="seg" role="group" aria-label="Game mode">
+            <button type="button" data-mode="All" aria-pressed="true">All <span></span></button>
+            <button type="button" data-mode="Roleplay" aria-pressed="false">Roleplay <span></span></button>
+            <button type="button" data-mode="Racing" aria-pressed="false">Racing <span></span></button>
+            <button type="button" data-mode="Freeroam" aria-pressed="false">Freeroam <span></span></button>
+          </div>
+          <label class="search">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input id="search" type="search" placeholder="Search servers" autocomplete="off" aria-label="Search servers">
+          </label>
+        </div>
+        <ul class="cards" id="server-cards"></ul>
+        <div class="state" id="servers-state" hidden></div>
+      </section>
+
+      <!-- Favorites -->
+      <section class="view" id="view-favorites" hidden>
+        <div class="view-head">
+          <div>
+            <h1>Favorites</h1>
+            <p class="sub" id="fav-sub"></p>
+          </div>
+        </div>
+        <ul class="cards" id="fav-cards"></ul>
+        <div class="state" id="fav-state" hidden></div>
+      </section>
+
+      <!-- Mods -->
+      <section class="view" id="view-mods" hidden>
+        <div class="view-head">
+          <div>
+            <h1>Mods</h1>
+            <p class="sub" id="mods-sub">Community mods for your game.</p>
+          </div>
+          <div class="head-actions">
+            <button type="button" class="icon-btn" id="mods-refresh" aria-label="Refresh mods" title="Refresh">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <div class="seg" role="group" aria-label="Mods tabs" id="mods-tabs">
+            <button type="button" data-mods-tab="browse" aria-pressed="true">Browse <span></span></button>
+            <button type="button" data-mods-tab="installed" aria-pressed="false">Installed <span></span></button>
+            <button type="button" data-mods-tab="updates" aria-pressed="false">Updates <span></span></button>
+          </div>
+          <label class="search" id="mods-search-wrap">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input id="mods-search" type="search" placeholder="Search mods" autocomplete="off" aria-label="Search mods">
+          </label>
+        </div>
+        <ul class="cards" id="mod-cards"></ul>
+        <ul class="mod-rows" id="mod-rows"></ul>
+        <div class="state" id="mods-state" hidden></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view view-settings" id="view-settings" hidden>
+        <nav class="settings-nav" aria-label="Settings sections" id="settings-nav">
+          <h1>Settings</h1>
+          <a href="#set-account" data-section="account">Account</a>
+          <a href="#set-profile" data-section="profile">Profile</a>
+          <a href="#set-game" data-section="game">Game</a>
+          <a href="#set-downloads" data-section="downloads">Downloads</a>
+          <a href="#set-mods" data-section="mods">Mods</a>
+          <a href="#set-network" data-section="network">Network</a>
+          <a href="#set-launcher" data-section="launcher">Launcher</a>
+          <a href="#set-developer" data-section="developer">Developer</a>
+          <a href="#set-about" data-section="about">About</a>
+          <p class="saved" id="saved" hidden>Saved</p>
+        </nav>
+
+        <form class="settings" id="settings-form" autocomplete="off">
+          <section class="set-section" id="set-account">
+            <h2>Account</h2>
+            <div class="account" id="account-box"></div>
+            <label class="switch-row" id="sync-row">
+              <span><strong>Sync favorites</strong><span class="hint">Keep your starred servers the same on every PC you log in on.</span></span>
+              <input type="checkbox" class="switch" id="syncFavorites" data-setting="syncFavorites">
+            </label>
+          </section>
+
+          <section class="set-section" id="set-profile">
+            <h2>Profile</h2>
+            <div class="field">
+              <label for="playerName">In-game name</label>
+              <div class="row">
+                <input id="playerName" data-setting="playerName" maxlength="24" placeholder="What other players see" spellcheck="false">
+                <button type="button" class="btn btn-ghost" id="use-account-name" hidden>Use my Discord name</button>
+              </div>
+              <p class="hint" id="name-hint">3 to 24 characters: letters, numbers, spaces and _ - .</p>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-game">
+            <h2>Game</h2>
+            <div class="field">
+              <label for="emulatorPath">Emulator</label>
+              <div class="row">
+                <input id="emulatorPath" data-setting="emulatorPath" placeholder="C:\Emulators\emulator.exe" spellcheck="false">
+                <button type="button" class="btn btn-ghost" data-pick="emulator" data-target="emulatorPath">Browse…</button>
+              </div>
+              <p class="hint">The emulator's program file. ProjectVI never downloads or bundles an emulator.</p>
+            </div>
+            <div class="field">
+              <label for="gamePath">Game</label>
+              <div class="row">
+                <input id="gamePath" data-setting="gamePath" placeholder="Your copy of GTA VI" spellcheck="false">
+                <button type="button" class="btn btn-ghost" data-pick="gameFile" data-target="gamePath">File…</button>
+                <button type="button" class="btn btn-ghost" data-pick="gameFolder" data-target="gamePath">Folder…</button>
+              </div>
+              <p class="hint">Your own copy of the game, in whatever form your emulator opens.</p>
+            </div>
+            <div class="field">
+              <label for="launchArgs">Launch arguments</label>
+              <input id="launchArgs" data-setting="launchArgs" class="mono" spellcheck="false">
+              <p class="hint">Use <code>{game}</code>, <code>{server}</code> and <code>{name}</code>. They're filled in when the emulator starts.</p>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" id="check-setup">Check setup</button>
+              <button type="button" class="btn btn-ghost" id="test-launch">Launch emulator</button>
+            </div>
+            <ul class="checks" id="setup-checks" hidden></ul>
+          </section>
+
+          <section class="set-section" id="set-downloads">
+            <h2>Downloads</h2>
+            <div class="field">
+              <label for="cacheDir">Server content folder</label>
+              <div class="row">
+                <input id="cacheDir" data-setting="cacheDir" spellcheck="false">
+                <button type="button" class="btn btn-ghost" data-pick="cacheDir" data-target="cacheDir">Browse…</button>
+              </div>
+              <p class="hint">Mods and files that servers send you. Leave empty to use the default folder.</p>
+            </div>
+            <div class="storage">
+              <div>
+                <span class="storage-label">Space used</span>
+                <strong id="cache-size">…</strong>
+              </div>
+              <div class="actions">
+                <button type="button" class="btn btn-ghost" data-open="cache">Open folder</button>
+                <button type="button" class="btn btn-ghost" id="clear-cache">Clear</button>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field">
+                <label for="askAboveMb">Ask before downloading more than</label>
+                <div class="unit"><input id="askAboveMb" data-setting="askAboveMb" type="number" min="0" max="100000" step="50"><span>MB</span></div>
+                <p class="hint">Smaller downloads start without asking. 0 always asks.</p>
+              </div>
+              <div class="field">
+                <label for="parallelDownloads">Files downloaded at once</label>
+                <div class="unit"><input id="parallelDownloads" data-setting="parallelDownloads" type="number" min="1" max="8"><span>of 8</span></div>
+                <p class="hint">Lower this on a slow connection.</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-mods">
+            <h2>Mods</h2>
+            <div class="field">
+              <label for="modsDir">Mods folder</label>
+              <div class="row">
+                <input id="modsDir" data-setting="modsDir" spellcheck="false">
+                <button type="button" class="btn btn-ghost" data-pick="modsDir" data-target="modsDir">Browse…</button>
+                <button type="button" class="btn btn-ghost" data-open="mods">Open</button>
+              </div>
+              <p class="hint">Where new mods are installed. Leave empty to use the default folder. Mods you already have stay where they are.</p>
+            </div>
+            <div class="field">
+              <label for="registryUrl">Mod registry</label>
+              <input id="registryUrl" data-setting="registryUrl" class="mono" spellcheck="false" placeholder="Not published yet">
+              <p class="hint">The list of public mods. Must use https://. With developer mode on, http:// and file:// work too.</p>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-network">
+            <h2>Network</h2>
+            <div class="field">
+              <label for="masterUrl">Master server</label>
+              <div class="row">
+                <input id="masterUrl" data-setting="masterUrl" class="mono" spellcheck="false">
+                <button type="button" class="btn btn-ghost" id="test-master">Test</button>
+              </div>
+              <p class="hint" id="master-hint">Where the launcher gets the server list. Must use https:// unless it runs on this PC.</p>
+            </div>
+          </section>
+
+          <section class="set-section" id="set-launcher">
+            <h2>Launcher</h2>
+            <label class="switch-row">
+              <span><strong>Start with Windows</strong><span class="hint" id="startup-hint">Open ProjectVI when you sign in.</span></span>
+              <input type="checkbox" class="switch" id="startWithWindows" data-setting="startWithWindows">
+            </label>
+            <label class="switch-row">
+              <span><strong>Keep running in the tray</strong><span class="hint">Closing the window hides it to the system tray.</span></span>
+              <input type="checkbox" class="switch" id="closeToTray" data-setting="closeToTray">
+            </label>
+            <label class="switch-row">
+              <span><strong>Check for updates automatically</strong><span class="hint" id="update-hint">Download new versions in the background.</span></span>
+              <input type="checkbox" class="switch" id="autoUpdate" data-setting="autoUpdate">
+            </label>
+            <div class="field field-inline">
+              <label for="updateChannel">Update channel</label>
+              <select id="updateChannel" data-setting="updateChannel">
+                <option value="stable">Stable</option>
+                <option value="beta">Beta</option>
+              </select>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" id="check-updates">Check for updates</button>
+            </div>
+            <p class="hint" id="update-status"></p>
+          </section>
+
+          <section class="set-section" id="set-developer">
+            <h2>Developer</h2>
+            <label class="switch-row">
+              <span><strong>Developer mode</strong><span class="hint">F12 opens developer tools, and mod registries can use http:// and local files.</span></span>
+              <input type="checkbox" class="switch" id="developerMode" data-setting="developerMode">
+            </label>
+            <div class="actions">
+              <button type="button" class="btn btn-ghost" data-open="logs">Open logs folder</button>
+              <button type="button" class="btn btn-ghost" id="copy-diagnostics">Copy diagnostics</button>
+              <button type="button" class="btn btn-danger" id="reset-settings">Reset all settings</button>
+            </div>
+            <p class="hint">Diagnostics leave out your login and file paths, so they're safe to paste into a bug report.</p>
+          </section>
+
+          <section class="set-section" id="set-about">
+            <h2>About</h2>
+            <dl class="about" id="about"></dl>
+            <p class="disclaimer">ProjectVI is an independent community project, released under the MIT license. It is not affiliated with, endorsed by or sponsored by Rockstar Games, Take-Two Interactive or Microsoft. Grand Theft Auto and Grand Theft Auto VI are trademarks of Take-Two Interactive Software, Inc. Xbox is a trademark of Microsoft Corporation.</p>
+          </section>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <footer class="statusbar">
+    <span id="status-master"><i class="dot"></i>Connecting to master server…</span>
+    <span class="status-right">
+      <button type="button" class="status-btn" id="update-ready" hidden>Update ready · Restart to install</button>
+      <span id="status-player"></span>
+    </span>
+  </footer>
+
+  <dialog class="dialog" id="dialog"></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>projectvi-sandbox</AssemblyName>
+    <RootNamespace>ProjectVI.Sandbox</RootNamespace>
+    <Description>Runs a program inside a Windows AppContainer with no capabilities, inside a Job object.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

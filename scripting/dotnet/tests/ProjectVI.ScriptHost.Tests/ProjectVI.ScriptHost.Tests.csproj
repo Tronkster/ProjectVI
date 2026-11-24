@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ProjectVI.ScriptHost\ProjectVI.ScriptHost.csproj" />
+    <!-- Built so the tests can load them as resources and run them in the sandbox; not referenced in code. -->
+    <ProjectReference Include="..\ProjectVI.TestResources\ProjectVI.TestResources.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ProjectVI.TestResources.Broken\ProjectVI.TestResources.Broken.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\ProjectVI.Sandbox\ProjectVI.Sandbox.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\ProjectVI.Sandbox.Probe\ProjectVI.Sandbox.Probe.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

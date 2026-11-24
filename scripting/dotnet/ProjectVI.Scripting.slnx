@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ProjectVI.Sandbox/ProjectVI.Sandbox.csproj" />
+    <Project Path="src/ProjectVI.ScriptHost/ProjectVI.ScriptHost.csproj" />
+    <Project Path="src/ProjectVI.Server/ProjectVI.Server.csproj" />
+    <Project Path="src/ProjectVI.Shared/ProjectVI.Shared.csproj" />
+    <Project Path="src/ProjectVI.Testing/ProjectVI.Testing.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ProjectVI.Sandbox.Probe/ProjectVI.Sandbox.Probe.csproj" />
+    <Project Path="tests/ProjectVI.ScriptHost.Tests/ProjectVI.ScriptHost.Tests.csproj" />
+    <Project Path="tests/ProjectVI.TestResources.Broken/ProjectVI.TestResources.Broken.csproj" />
+    <Project Path="tests/ProjectVI.TestResources/ProjectVI.TestResources.csproj" />
+  </Folder>
+  <Project Path="../../server/resources/jobs/src/Jobs.Server/Jobs.Server.csproj" />
+  <Project Path="../../server/resources/jobs/tests/Jobs.Tests/Jobs.Tests.csproj" />
+  <Project Path="../../server/resources/welcome/src/Welcome.Server.csproj" />
+</Solution>

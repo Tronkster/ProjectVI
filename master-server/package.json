@@ -1,0 +1,16 @@
+{
+  "name": "projectvi-master-server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Master server for ProjectVI: game servers report in, the launcher reads the list.",
+  "license": "MIT",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "fake": "node scripts/fake-servers.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

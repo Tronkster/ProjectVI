@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ProjectVISide>none</ProjectVISide>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Jobs.Server\Jobs.Server.csproj" />
+    <ProjectReference Include="$(ProjectVISdkDir)\ProjectVI.Testing\ProjectVI.Testing.csproj" />
+  </ItemGroup>
+
+</Project>

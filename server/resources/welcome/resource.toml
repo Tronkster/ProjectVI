@@ -1,0 +1,9 @@
+description = "Greets players. C# example resource."
+version = "1.1.0"
+
+# Nothing from this resource is sent to players yet.
+client_files = []
+
+[dotnet]
+# Build with: dotnet build server/resources/welcome/src
+server = ["bin/server/Welcome.Server.dll"]

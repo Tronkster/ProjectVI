@@ -1,0 +1,19 @@
+{
+  "name": "projectvi-server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Reference ProjectVI game server: reads server.toml, sends resources to players and reports to the master server.",
+  "license": "MIT",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@projectvi/shared": "0.2.0",
+    "smol-toml": "1.9.1"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

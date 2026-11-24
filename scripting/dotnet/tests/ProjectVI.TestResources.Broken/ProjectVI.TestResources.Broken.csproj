@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>A resource whose OnStart throws, for host tests.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ProjectVI.Server\ProjectVI.Server.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

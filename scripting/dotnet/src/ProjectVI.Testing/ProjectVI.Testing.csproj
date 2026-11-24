@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ProjectVI.Testing</RootNamespace>
+    <Description>Unit-test ProjectVI resources without a server or the game: fake players, commands, events, store and time.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageTags>projectvi;scripting;testing</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProjectVI.Shared\ProjectVI.Shared.csproj" />
+    <ProjectReference Include="..\ProjectVI.Server\ProjectVI.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+{
+  "id": "night-sky",
+  "name": "Clearer Night Sky",
+  "version": "0.3.0",
+  "author": "ProjectVI examples",
+  "description": "Darker nights with more visible stars. Visual settings only. Example mod for testing the launcher.",
+  "license": "CC-BY-4.0",
+  "tags": ["visuals"]
+}

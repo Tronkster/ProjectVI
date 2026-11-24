@@ -1,0 +1,16 @@
+<Project>
+  <!-- Copies the built resource assembly (and its private dependencies, never the SDK) into bin/<side>. -->
+  <Target Name="ProjectVIDeploy" AfterTargets="Build" Condition="'$(ProjectVISide)' == 'server' or '$(ProjectVISide)' == 'client'">
+    <PropertyGroup>
+      <_ProjectVIOut>$(ProjectVIResourceDir)\bin\$(ProjectVISide)\</_ProjectVIOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_ProjectVIFiles Include="$(TargetPath)" />
+      <_ProjectVIFiles Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      <_ProjectVIFiles Include="@(ReferenceCopyLocalPaths)"
+                       Condition="'%(Extension)' == '.dll' and '%(Filename)' != 'ProjectVI.Shared' and '%(Filename)' != 'ProjectVI.Server' and '%(Filename)' != 'ProjectVI.Client'" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ProjectVIFiles)" DestinationFolder="$(_ProjectVIOut)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="ProjectVI: $(TargetName) -> $(_ProjectVIOut)" />
+  </Target>
+</Project>

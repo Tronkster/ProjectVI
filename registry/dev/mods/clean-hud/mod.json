@@ -1,0 +1,9 @@
+{
+  "id": "clean-hud",
+  "name": "Clean HUD",
+  "version": "1.1.0",
+  "author": "ProjectVI examples",
+  "description": "A minimal speedometer and money display. Example mod for testing the launcher.",
+  "license": "MIT",
+  "tags": ["ui", "hud"]
+}

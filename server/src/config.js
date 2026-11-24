@@ -1,0 +1,91 @@
+// Reads and checks server.toml. Errors are written for server owners, not developers.
+
+const fs = require("node:fs");
+const { parse } = require("smol-toml");
+const { RESOURCE_NAME, DEFAULT_MASTER_URL } = require("@projectvi/shared");
+
+const MODES = ["Roleplay", "Racing", "Freeroam", "Other"];
+
+const isInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
+const text = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+function validateConfig(raw) {
+  const s = raw.server ?? {};
+  const m = raw.master ?? {};
+  const r = raw.resources ?? {};
+  const sc = raw.scripting ?? {};
+  const errors = [];
+
+  const name = text(s.name, 64);
+  if (!name) errors.push("[server] name is required (1-64 characters).");
+
+  const port = s.port ?? 30120;
+  if (!isInt(port, 1, 65535)) errors.push("[server] port must be a number between 1 and 65535.");
+
+  const maxPlayers = s.max_players ?? 32;
+  if (!isInt(maxPlayers, 1, 1024)) errors.push("[server] max_players must be a number between 1 and 1024.");
+
+  const modeInput = text(s.gamemode, 16).toLowerCase();
+  const mode = MODES.find((x) => x.toLowerCase() === modeInput) ?? "Other";
+
+  const start = r.start ?? [];
+  if (!Array.isArray(start) || !start.every((n) => typeof n === "string" && RESOURCE_NAME.test(n))) {
+    errors.push("[resources] start must be a list of folder names, like [\"chat\", \"hud\"].");
+  }
+
+  const masterUrl = typeof m.url === "string" && m.url.trim() ? m.url.trim() : DEFAULT_MASTER_URL;
+  try {
+    new URL(masterUrl);
+  } catch {
+    errors.push("[master] url isn't a valid address.");
+  }
+
+  // [permissions] group = ["discord:123", ...]. Players are matched by verified identifier, never by name.
+  const permissions = {};
+  for (const [group, members] of Object.entries(raw.permissions ?? {})) {
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(group) || !Array.isArray(members) || !members.every((m) => typeof m === "string" && /^[a-z]+:.+$/.test(m))) {
+      errors.push(`[permissions] ${group} must be a list of identifiers like ["discord:123456789"].`);
+      continue;
+    }
+    permissions[group] = members;
+  }
+
+  if (errors.length) throw new Error(`server.toml has problems:\n  ${errors.join("\n  ")}`);
+
+  return {
+    permissions,
+    name,
+    description: text(s.description, 160),
+    port,
+    bind: text(s.bind, 64) || "0.0.0.0",
+    maxPlayers,
+    mode,
+    region: text(s.region, 8).toUpperCase(),
+    master: { url: masterUrl, public: m.public !== false },
+    resources: { start: [...new Set(start)] },
+    scripting: {
+      dotnetHost: text(sc.dotnet_host, 1024),
+      watch: sc.watch !== false,
+      waitForDebugger: sc.wait_for_debugger === true,
+      dev: sc.dev === true
+    }
+  };
+}
+
+function loadConfig(file) {
+  let source;
+  try {
+    source = fs.readFileSync(file, "utf8");
+  } catch {
+    throw new Error(`Can't read ${file}. Run the server from its folder, or pass the path to server.toml.`);
+  }
+  let raw;
+  try {
+    raw = parse(source);
+  } catch (err) {
+    throw new Error(`server.toml isn't valid TOML: ${err.message}`, { cause: err });
+  }
+  return validateConfig(raw);
+}
+
+module.exports = { loadConfig, validateConfig, MODES };

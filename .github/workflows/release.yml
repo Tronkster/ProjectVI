@@ -1,0 +1,45 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the Windows installer and publish it as a GitHub Release.
+# Installed launchers pick the release up through auto-update.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: npm ci
+      - run: npm run build:scripting
+
+      - name: Check the release is set up
+        shell: bash
+        run: |
+          node -e "if (!require('./packages/shared').REPO_CONFIGURED) { console.error('Set REPO in packages/shared/project.js before releasing.'); process.exit(1) }"
+          VERSION=$(node -p "require('./launcher/package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME doesn't match launcher version $VERSION."; exit 1
+          fi
+
+      - run: npm run lint
+      - run: npm test
+
+      - name: Build and publish the installer
+        working-directory: launcher
+        shell: bash # PowerShell would split the -c.publish.* arguments
+        run: npx electron-builder --win --publish always -c.publish.provider=github -c.publish.owner=${{ github.repository_owner }} -c.publish.repo=${{ github.event.repository.name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

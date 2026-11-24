@@ -1,0 +1,59 @@
+{
+  "name": "projectvi-launcher",
+  "productName": "ProjectVI",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Desktop launcher for ProjectVI: server browser, mods, profile and game launch.",
+  "license": "MIT",
+  "author": "ProjectVI contributors",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "icons": "node scripts/make-icons.js",
+    "capture": "node scripts/capture.js",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win",
+    "postinstall": "node -e \"require(require.resolve('electron/install.js'))\""
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@projectvi/shared": "0.2.0",
+    "@projectvi/zip": "0.2.0",
+    "electron-updater": "6.8.12"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.1",
+    "projectvi-master-server": "0.2.0"
+  },
+  "build": {
+    "appId": "io.github.projectvi.launcher",
+    "productName": "ProjectVI",
+    "copyright": "Copyright © 2026 ProjectVI contributors",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.test.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "src/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "ProjectVI-Setup-${version}.${ext}",
+      "shortcutName": "ProjectVI"
+    }
+  }
+}

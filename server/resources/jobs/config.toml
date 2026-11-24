@@ -1,0 +1,16 @@
+# Jobs settings. Restart the resource after changing this file: restart jobs
+
+# How often players who are clocked in get paid.
+pay_interval_seconds = 60
+
+[jobs.mechanic]
+label = "Mechanic"
+pay = 120
+
+[jobs.taxi]
+label = "Taxi driver"
+pay = 90
+
+[jobs.police]
+label = "Police officer"
+pay = 150

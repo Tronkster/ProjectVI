@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in ProjectVI doesn't work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Never attach game files, keys or emulator files.
+        Security problems go through the Security tab instead (see SECURITY.md).
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      options:
+        - Launcher
+        - Master server
+        - Game server
+        - Mods / registry
+        - Website or docs
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the launcher
+        2. ...
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: In the launcher, open Settings → Developer → Copy diagnostics and paste the result here. It leaves out your login and file paths.
+      render: text

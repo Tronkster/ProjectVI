@@ -1,0 +1,8 @@
+description = "Jobs, clocking in and paydays. C# example resource."
+version = "1.0.0"
+
+client_files = []
+
+[dotnet]
+# Build with: dotnet build server/resources/jobs/src/Jobs.Server
+server = ["bin/server/Jobs.Server.dll"]

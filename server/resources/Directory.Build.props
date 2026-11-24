@@ -1,0 +1,18 @@
+<Project>
+  <!--
+    Defaults for C# projects inside server resources (any depth under resources/<name>/).
+    Building a project with ProjectVISide server/client copies its DLL into resources/<name>/bin/<side>/,
+    which is what resource.toml lists. Test projects set ProjectVISide to none.
+    (Templates and the NuGet SDK carry the same settings for resources outside this repo.)
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ProjectVIResourceDir>$([MSBuild]::GetDirectoryNameOfFileAbove('$(MSBuildProjectDirectory)', 'resource.toml'))</ProjectVIResourceDir>
+    <ProjectVISide Condition="'$(ProjectVISide)' == ''">server</ProjectVISide>
+    <ProjectVISdkDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\scripting\dotnet\src'))</ProjectVISdkDir>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Test helper: tries things a sandboxed program must not be able to do and reports the results as JSON.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

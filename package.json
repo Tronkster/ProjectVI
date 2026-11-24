@@ -1,0 +1,34 @@
+{
+  "name": "projectvi",
+  "private": true,
+  "description": "Community multiplayer mod for GTA VI on PC, built for the emulated Xbox version.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "launcher",
+    "master-server",
+    "server",
+    "registry"
+  ],
+  "scripts": {
+    "test": "npm run test:js && npm run test:dotnet",
+    "test:js": "npm test --workspaces --if-present",
+    "test:dotnet": "cd scripting/dotnet && dotnet test --solution ProjectVI.Scripting.slnx",
+    "build:scripting": "cd scripting/dotnet && dotnet build ProjectVI.Scripting.slnx -c Release && dotnet publish src/ProjectVI.ScriptHost -c Release",
+    "lint": "eslint .",
+    "dev:master": "npm start -w master-server",
+    "dev:fake": "npm run fake -w master-server",
+    "dev:server": "npm start -w server",
+    "dev:registry": "npm run dev -w registry",
+    "dev:launcher": "npm start -w launcher",
+    "dist": "npm run dist -w launcher"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "globals": "17.14.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

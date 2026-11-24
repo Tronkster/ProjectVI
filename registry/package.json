@@ -1,0 +1,16 @@
+{
+  "name": "projectvi-registry",
+  "version": "0.2.0",
+  "private": true,
+  "description": "The ProjectVI public mod registry format, its validator and a local dev registry.",
+  "license": "MIT",
+  "scripts": {
+    "validate": "node validate.js index.json",
+    "dev": "node dev/build.js && node dev/serve.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@projectvi/shared": "0.2.0",
+    "@projectvi/zip": "0.2.0"
+  }
+}

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ProjectVI.Server</RootNamespace>
+    <Description>SDK for ProjectVI server scripts: players, events, commands, timers, exports, storage.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageTags>projectvi;scripting;server;gta6;multiplayer</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProjectVI.Shared\ProjectVI.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProjectVI.ScriptHost" />
+    <InternalsVisibleTo Include="ProjectVI.Testing" />
+    <InternalsVisibleTo Include="ProjectVI.ScriptHost.Tests" />
+  </ItemGroup>
+
+</Project>

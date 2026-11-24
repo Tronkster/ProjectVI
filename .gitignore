@@ -1,0 +1,14 @@
+node_modules/
+scripting/dotnet/artifacts/
+server/resources/**/bin/
+server/resources/**/obj/
+*.user
+.projectvi/
+master-server/data/
+registry/dev/dist/
+registry/dev/index.json
+dist/
+out/
+*.log
+.DS_Store
+Thumbs.db

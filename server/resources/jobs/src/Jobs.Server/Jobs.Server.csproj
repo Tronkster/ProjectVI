@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <ProjectVISide>server</ProjectVISide>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(ProjectVISdkDir)\ProjectVI.Server\ProjectVI.Server.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

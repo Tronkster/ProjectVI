@@ -1,0 +1,28 @@
+# ProjectVI server settings. Restart the server after changing this file.
+
+[server]
+name = "ProjectVI Dev Server"
+description = "Local test server with the example resources."
+port = 30120            # game port; players' launchers also download resources from it
+max_players = 32
+gamemode = "Freeroam"   # Roleplay, Racing, Freeroam or Other
+region = "EU"
+# bind = "0.0.0.0"      # network address to listen on
+
+[master]
+url = "http://localhost:30180"
+public = true           # false keeps the server off the public list
+
+[resources]
+# Folders in resources/ to start, in order.
+start = ["jobs", "welcome", "hud"]
+
+[scripting]
+# dotnet_host = ""        # path to ProjectVI.ScriptHost; empty uses this repository's build
+# wait_for_debugger = false
+dev = true                # allows fakeplayer, as and netevent in the console. Turn off on real servers.
+
+[permissions]
+# Groups of verified identifiers (never names). Commands can require a group.
+# For a quick test: fakeplayer add Kai discord:111   (Kai is then an admin)
+admin = ["discord:111"]

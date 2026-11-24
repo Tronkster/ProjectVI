@@ -1,0 +1,4 @@
+description = "Simple speedometer and money display."
+version = "1.0.0"
+
+client_files = ["client.lua", "ui/*"]

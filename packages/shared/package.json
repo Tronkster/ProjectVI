@@ -1,0 +1,11 @@
+{
+  "name": "@projectvi/shared",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Constants and validators shared by the ProjectVI launcher, servers and registry.",
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

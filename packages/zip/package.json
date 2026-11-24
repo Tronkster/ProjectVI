@@ -1,0 +1,15 @@
+{
+  "name": "@projectvi/zip",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Safe zip reading and extraction for ProjectVI mods, plus a tiny zip writer for tests and dev tools.",
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@projectvi/shared": "0.2.0",
+    "yauzl": "3.4.0"
+  }
+}

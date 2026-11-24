@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ProjectVI</RootNamespace>
+    <Description>Types shared by ProjectVI server and client scripts: vectors, attributes, events, logging.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageTags>projectvi;scripting;gta6;multiplayer</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProjectVI.Server" />
+    <InternalsVisibleTo Include="ProjectVI.Client" />
+    <InternalsVisibleTo Include="ProjectVI.ScriptHost" />
+    <InternalsVisibleTo Include="ProjectVI.Testing" />
+    <InternalsVisibleTo Include="ProjectVI.ScriptHost.Tests" />
+  </ItemGroup>
+
+</Project>

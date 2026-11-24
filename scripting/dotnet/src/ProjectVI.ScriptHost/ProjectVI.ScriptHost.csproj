@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ProjectVI.ScriptHost</RootNamespace>
+    <Description>Runs ProjectVI C# resources for the server core or the game client, over JSON-RPC on stdio.</Description>
+    <IsPackable>false</IsPackable>
+    <!-- Resources are loaded and unloaded at runtime; keep the host's own startup lean. -->
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProjectVI.Shared\ProjectVI.Shared.csproj" />
+    <ProjectReference Include="..\ProjectVI.Server\ProjectVI.Server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProjectVI.ScriptHost.Tests" />
+  </ItemGroup>
+
+</Project>

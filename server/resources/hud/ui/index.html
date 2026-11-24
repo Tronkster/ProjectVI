@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="hud">
+    <span class="speed" id="speed">0</span><span class="unit">km/h</span>
+    <span class="money" id="money">$0</span>
+  </div>
+  <script>
+    projectvi.on("update", ({ speed, money }) => {
+      document.getElementById("speed").textContent = speed;
+      document.getElementById("money").textContent = "$" + money.toLocaleString();
+    });
+  </script>
+</body>
+</html>
