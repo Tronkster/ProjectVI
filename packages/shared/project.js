@@ -2,7 +2,7 @@
 //
 // "OWNER/REPO" is deliberately unresolvable. Until it's replaced, auto-update and the public
 // mod registry stay switched off instead of pointing at a GitHub account someone else might own.
-const REPO = "OWNER/REPO";
+const REPO = "hfnissum-byte/ProjectVI";
 
 const REPO_CONFIGURED = REPO !== "OWNER/REPO" && /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(REPO);
 
