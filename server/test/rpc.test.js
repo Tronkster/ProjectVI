@@ -27,12 +27,19 @@ test("requests, results, errors and notifications", async () => {
 });
 
 test("timeouts and closing reject pending calls", async () => {
-  const a = new JsonRpcPeer(new PassThrough(), new PassThrough()); // nobody answers
-  await assert.rejects(a.request("never", {}, { timeoutMs: 50 }), /timed out/);
-  const pending = a.request("never", {}, { timeoutMs: 5000 });
-  a.close("bye");
-  await assert.rejects(pending, /bye/);
-  await assert.rejects(a.request("after"), /closed/);
+  // Request timers are unref'd, so on Node 22 the test runner would see an empty event loop
+  // and give up before the timeout fires. Hold the loop open while waiting for it.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    const a = new JsonRpcPeer(new PassThrough(), new PassThrough()); // nobody answers
+    await assert.rejects(a.request("never", {}, { timeoutMs: 50 }), /timed out/);
+    const pending = a.request("never", {}, { timeoutMs: 5000 });
+    a.close("bye");
+    await assert.rejects(pending, /bye/);
+    await assert.rejects(a.request("after"), /closed/);
+  } finally {
+    clearInterval(keepAlive);
+  }
 });
 
 test("oversized and broken frames are dropped, not fatal", async () => {
