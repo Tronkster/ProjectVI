@@ -19,7 +19,7 @@ Open-source multiplayer mod for GTA VI on PC, built for the Xbox version running
 | Launcher: auto-update | ✅ Works: an installed 0.3.0 found 0.4.0, downloaded it, installed it on restart and came back as 0.4.0 |
 | Master server: server list, login, favorites, friends | ✅ Works |
 | Game server: config, resources, content hosting, listing | ✅ Works |
-| **Client mod: actually joining a game** | ❌ Not started. It needs reverse engineering of the emulated game |
+| **Client mod: actually joining a game** | ❌ Not started. |
 
 The launcher prepares everything the client will need: the server address, player name, downloaded content and enabled mods. See [docs/protocol.md](docs/protocol.md).
 
