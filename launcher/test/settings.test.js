@@ -47,3 +47,8 @@ test("a corrupt settings file falls back to defaults", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("friends see your server unless you turn it off", () => {
+  assert.equal(defaults().shareServerWithFriends, true);
+  assert.deepEqual(sanitize({ shareServerWithFriends: false }), { shareServerWithFriends: false });
+});

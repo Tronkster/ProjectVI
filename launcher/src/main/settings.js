@@ -22,6 +22,7 @@ const SCHEMA = {
   askAboveMb: { type: "int", min: 0, max: 100_000, default: 500 },
   parallelDownloads: { type: "int", min: 1, max: 8, default: 4 },
   syncFavorites: { type: "bool", default: true },
+  shareServerWithFriends: { type: "bool", default: true }, // off: friends see "Online", not the server
   startWithWindows: { type: "bool", default: false },
   closeToTray: { type: "bool", default: false },
   autoUpdate: { type: "bool", default: true },
