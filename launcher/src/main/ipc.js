@@ -67,6 +67,8 @@ function registerIpc(ctx) {
     onSettingsChanged(prev, next);
     updater.applySettings(next);
     const favoritesChanged = prev.favorites.join("\n") !== next.favorites.join("\n");
+    // Friends see the change right away, not at the next minute's report.
+    if (prev.shareServerWithFriends !== next.shareServerWithFriends) reportPresence();
     if (favoritesChanged && next.syncFavorites && auth.isLoggedIn()) {
       auth.putFavorites(next.favorites).catch((err) => logger.warn("Favorites sync failed", { error: err.message }));
     }
@@ -162,7 +164,8 @@ function registerIpc(ctx) {
   async function reportPresence() {
     if (!auth.hasFriendsAccount()) return;
     const name = validatePlayerName(store.get().playerName);
-    const r = await auth.reportPresence(name.ok ? name.name : "", playingOn);
+    const shown = store.get().shareServerWithFriends ? playingOn : "";
+    const r = await auth.reportPresence(name.ok ? name.name : "", shown);
     if (!r.ok && !r.offline) logger.warn("Presence update failed", { error: r.error });
   }
   setInterval(reportPresence, 60_000).unref();
