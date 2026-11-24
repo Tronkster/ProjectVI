@@ -4,6 +4,7 @@ import { $, api } from "./util.js";
 import { state, on, emit } from "./state.js";
 import { initServers, renderServers, refreshServers } from "./views/servers.js";
 import { renderFavorites } from "./views/favorites.js";
+import { initFriends, renderFriends, refreshFriends } from "./views/friends.js";
 import { fill as fillSettings, initSettings, scrollToSection, updateCacheSize } from "./views/settings.js";
 import { initMods, loadMods, modsLoaded, renderMods } from "./views/mods.js";
 import { initProfile, renderProfile } from "./profile.js";
@@ -12,7 +13,7 @@ import { initUpdates } from "./updates.js";
 import { connect } from "./connect.js";
 import { showToast } from "./ui/toast.js";
 
-const VIEWS = ["servers", "favorites", "mods", "settings"];
+const VIEWS = ["servers", "favorites", "friends", "mods", "settings"];
 const REFRESH_EVERY_MS = 30_000;
 
 // go("settings") or go("settings:game") to jump to a section.
@@ -27,6 +28,7 @@ function go(target) {
   });
   $("content").scrollTop = 0;
   if (view === "mods" && !modsLoaded()) loadMods();
+  if (view === "friends") refreshFriends();
   if (view === "settings") {
     updateCacheSize();
     if (section) scrollToSection(section);
@@ -114,14 +116,17 @@ async function start() {
   on("auth", () => {
     renderAccount();
     renderProfile();
+    refreshFriends(); // logging in or out changes which account friends use
   });
 
   initAccount();
   initUpdates();
   initMods();
   initProfile(go);
+  initFriends();
   initGlobalEvents();
   renderMods();
+  renderFriends();
   renderAccount();
 
   renderProfile();

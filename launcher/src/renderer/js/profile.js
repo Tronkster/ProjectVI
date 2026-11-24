@@ -50,7 +50,8 @@ export function initProfile(go) {
 }
 
 // Resolves true once the player has a valid name, false if they cancel.
-export async function ensurePlayerName() {
+// action is the label of the button that saves the name.
+export async function ensurePlayerName({ action = "Save and join" } = {}) {
   const current = await api.profile.validateName(state.settings.playerName);
   if (current.ok) return true;
 
@@ -69,7 +70,7 @@ export async function ensurePlayerName() {
     actions: [
       { label: "Cancel", value: false, kind: "ghost" },
       {
-        label: "Save and join",
+        label: action,
         kind: "accent",
         value: true,
         validate: async (dlg) => {

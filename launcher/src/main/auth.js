@@ -41,8 +41,15 @@ function callbackPage(title, text) {
 <div style="text-align:center"><h1 style="font-size:22px">${title}</h1><p style="color:#8b93a1">${text}</p></div>`;
 }
 
-function createAuth({ getSettings, tokenStore, openExternal, logger }) {
+const memoryStore = () => {
+  let saved = "";
+  return { load: () => saved, save: (t) => { saved = t; }, clear: () => { saved = ""; } };
+};
+
+// guestStore keeps the token of the guest account used for friends when not logged in with Discord.
+function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openExternal, logger }) {
   let token = tokenStore.load();
+  let guestToken = guestStore.load();
   let user = null;
   let pending = null;
 
@@ -52,10 +59,13 @@ function createAuth({ getSettings, tokenStore, openExternal, logger }) {
     return url.href.replace(/\/+$/, "");
   }
 
-  async function call(pathname, { method = "GET", body, timeoutMs = 8000 } = {}) {
+  // as: "session" sends the Discord session; "friends" sends whichever account friends use.
+  async function call(pathname, { method = "GET", body, timeoutMs = 8000, as = "session" } = {}) {
+    const usesGuest = as === "friends" && !token;
+    const bearer = usesGuest ? guestToken : token;
     const headers = {};
     if (body) headers["Content-Type"] = "application/json";
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
     const res = await fetch(`${masterBase()}${pathname}`, {
       method,
       headers,
@@ -63,12 +73,28 @@ function createAuth({ getSettings, tokenStore, openExternal, logger }) {
       signal: AbortSignal.timeout(timeoutMs)
     });
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && token) {
-      token = "";
-      user = null;
-      tokenStore.clear();
+    if (res.status === 401 && bearer) {
+      if (usesGuest) {
+        guestToken = "";
+        guestStore.clear();
+      } else {
+        token = "";
+        user = null;
+        tokenStore.clear();
+      }
     }
     return { ok: res.ok, status: res.status, data };
+  }
+
+  // Friends calls answer { ok, ...data } or { ok: false, error }, never throw.
+  async function friendsCall(pathname, options) {
+    if (!token && !guestToken) return { ok: false, noAccount: true, error: "Turn on friends first." };
+    try {
+      const r = await call(pathname, { ...options, as: "friends" });
+      return r.ok ? { ok: true, ...r.data } : { ok: false, status: r.status, error: r.data.error || "The master server said no." };
+    } catch {
+      return { ok: false, offline: true, error: "Can't reach the master server." };
+    }
   }
 
   // Opens a one-shot listener on 127.0.0.1 and resolves with the code the browser brings back.
@@ -147,11 +173,16 @@ function createAuth({ getSettings, tokenStore, openExternal, logger }) {
       }
 
       try {
-        const r = await call("/auth/exchange", { method: "POST", body: { code, verifier } });
+        // Sending the guest token moves the guest's friends to the Discord account.
+        const r = await call("/auth/exchange", { method: "POST", body: { code, verifier, ...(guestToken ? { guestToken } : {}) } });
         if (!r.ok) return { ok: false, error: r.data.error || "Login failed. Try again." };
         token = r.data.token;
         user = r.data.user;
         tokenStore.save(token);
+        if (guestToken) {
+          guestToken = "";
+          guestStore.clear();
+        }
         logger.info("Logged in", { provider: user.provider });
         return { ok: true, user };
       } catch {
@@ -166,6 +197,7 @@ function createAuth({ getSettings, tokenStore, openExternal, logger }) {
     async logout() {
       if (token) {
         try {
+          await call("/api/presence", { method: "DELETE" });
           await call("/auth/logout", { method: "POST" });
         } catch {
           // The session expires on its own.
@@ -191,7 +223,32 @@ function createAuth({ getSettings, tokenStore, openExternal, logger }) {
       if (!token) return null;
       const r = await call("/api/me/favorites", { method: "PUT", body: { favorites } });
       return r.ok ? r.data.favorites : null;
-    }
+    },
+
+    // ---- Friends: a Discord login, or else a guest account made when the player turns friends on ----
+    hasFriendsAccount: () => Boolean(token || guestToken),
+
+    async startGuest(name) {
+      if (token || guestToken) return { ok: true };
+      try {
+        const r = await call("/auth/guest", { method: "POST", body: { name } });
+        if (!r.ok) return { ok: false, error: r.data.error || "Couldn't turn on friends." };
+        guestToken = r.data.token;
+        guestStore.save(guestToken);
+        logger.info("Guest account made for friends");
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Can't reach the master server." };
+      }
+    },
+
+    friends: () => friendsCall("/api/friends"),
+    addFriend: (code) => friendsCall("/api/friends/requests", { method: "POST", body: { code } }),
+    acceptFriend: (id) => friendsCall(`/api/friends/requests/${id}/accept`, { method: "POST" }),
+    dropRequest: (id) => friendsCall(`/api/friends/requests/${id}`, { method: "DELETE" }),
+    removeFriend: (id) => friendsCall(`/api/friends/${id}`, { method: "DELETE" }),
+    resetFriendCode: () => friendsCall("/api/friends/code", { method: "POST" }),
+    reportPresence: (name, serverId) => friendsCall("/api/presence", { method: "PUT", body: { name, serverId }, timeoutMs: 5000 })
   };
 }
 

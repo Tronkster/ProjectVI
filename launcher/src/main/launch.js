@@ -45,7 +45,8 @@ function buildLaunch(settings, extra = {}) {
   };
 }
 
-function launchGame(settings, extra) {
+// onExit, if given, runs when the emulator closes (used to tell friends you left the server).
+function launchGame(settings, extra, onExit) {
   const plan = buildLaunch(settings, extra);
   if (!plan.ok) return Promise.resolve(plan);
   return new Promise((resolve) => {
@@ -57,6 +58,7 @@ function launchGame(settings, extra) {
     });
     child.once("error", (err) => resolve({ ok: false, error: `Couldn't start the emulator: ${err.message}` }));
     child.once("spawn", () => {
+      if (onExit) child.once("exit", () => onExit());
       child.unref();
       resolve({ ok: true });
     });

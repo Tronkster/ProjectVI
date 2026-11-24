@@ -359,3 +359,29 @@ h1 { margin: 0; font-size: 30px; font-weight: 800; font-stretch: 112%; letter-sp
   background: var(--fg); color: var(--bg); font-weight: 500; font-size: 14px;
   padding: 12px 16px; border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
+
+/* ---- Friends ---- */
+.rail-badge { position: absolute; top: 4px; right: 3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--bg); font: 700 10px/16px var(--sans); font-style: normal; text-align: center; }
+.icon-btn-sm { width: 30px; height: 30px; border-radius: 8px; }
+.icon-btn-sm svg { width: 15px; height: 15px; }
+.friend-code { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 10px; }
+.friend-code span { color: var(--dim); font-size: 12.5px; }
+.friend-code strong { font: 600 14.5px/1 var(--mono); letter-spacing: 0.06em; margin-right: 4px; user-select: all; }
+#friends-body { display: grid; gap: 8px; margin-top: 22px; }
+#friends-body:empty { display: none; }
+#friends-state { margin-top: 22px; }
+.friends-h { margin: 14px 0 2px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.friends-h:first-child { margin-top: 0; }
+.friends-h span { color: var(--dim); font-family: var(--mono); }
+.friend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.friend { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 12px; }
+.friend-who { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.friend-who strong { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.presence { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presence i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.presence.online { color: var(--muted); }
+.presence.online i { background: var(--good); }
+.presence.playing { color: var(--fg-soft); }
+.presence.playing i { background: var(--accent); box-shadow: 0 0 0 3px rgba(255, 106, 26, 0.18); }
+.code-input { font-family: var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }

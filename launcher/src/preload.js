@@ -22,6 +22,15 @@ contextBridge.exposeInMainWorld("launcher", {
     cancel: invoke("auth:cancel"),
     logout: invoke("auth:logout")
   },
+  friends: {
+    list: invoke("friends:list"),
+    start: invoke("friends:start"),
+    add: invoke("friends:add"),
+    accept: invoke("friends:accept"),
+    dropRequest: invoke("friends:dropRequest"),
+    remove: invoke("friends:remove"),
+    resetCode: invoke("friends:resetCode")
+  },
   servers: {
     list: invoke("servers:list"),
     ping: invoke("servers:ping")

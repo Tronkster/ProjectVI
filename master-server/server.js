@@ -7,7 +7,8 @@ const http = require("node:http");
 const path = require("node:path");
 const { clientIp, send, readJson } = require("./src/http-util");
 const { openDatabase } = require("./src/db");
-const { createAuth } = require("./src/auth");
+const { createAuth, publicUser } = require("./src/auth");
+const { createFriends } = require("./src/friends");
 
 const MODES = ["Roleplay", "Racing", "Freeroam", "Other"];
 
@@ -57,6 +58,16 @@ function createMasterServer({
   const hits = new Map(); // ip -> { windowStart, count }
   const db = openDatabase(dbFile);
   const auth = createAuth({ db, discord, publicUrl, now });
+  const friends = createFriends({
+    db,
+    now,
+    sessionUser: auth.sessionUser,
+    publicUser,
+    getServer: (id) => {
+      const s = servers.get(id);
+      return s && s.lastSeen >= now() - staleAfterMs ? s : null;
+    }
+  });
 
   function rateLimited(ip) {
     const t = now();
@@ -109,6 +120,7 @@ function createMasterServer({
       }
 
       if (await auth.handle(req, res, url)) return;
+      if (await friends.handle(req, res, url)) return;
 
       send(res, 404, { error: "Not found." });
     } catch (err) {
@@ -120,6 +132,7 @@ function createMasterServer({
   const timer = setInterval(() => {
     pruneStale();
     auth.sweep();
+    friends.sweep();
   }, 15_000);
   timer.unref();
   server.on("close", () => {
