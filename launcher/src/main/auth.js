@@ -86,12 +86,40 @@ function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openE
     return { ok: res.ok, status: res.status, data };
   }
 
+  // Pictures players upload live on the master server at /avatars/<key>. The page's CSP only
+  // allows data: images (and Discord's CDN), so they're fetched here once and handed over inline.
+  // Keys change on every upload, so a cached picture never goes stale.
+  const pictures = new Map(); // "/avatars/<key>" -> data: URL
+  async function inlinePicture(person) {
+    const url = person?.avatarUrl;
+    if (typeof url !== "string" || !url.startsWith("/avatars/")) return;
+    if (!pictures.has(url)) {
+      try {
+        const res = await fetch(`${masterBase()}${url}`, { signal: AbortSignal.timeout(8000) });
+        const type = res.headers.get("content-type") || "";
+        const bytes = Buffer.from(await res.arrayBuffer());
+        if (!res.ok || !/^image\/(png|jpeg|webp)$/.test(type) || bytes.length > 64 * 1024) throw new Error("bad picture");
+        if (pictures.size > 500) pictures.clear();
+        pictures.set(url, `data:${type};base64,${bytes.toString("base64")}`);
+      } catch {
+        person.avatarUrl = ""; // initials instead; tried again next time
+        return;
+      }
+    }
+    person.avatarUrl = pictures.get(url);
+  }
+  async function inlinePictures(data) {
+    const people = [data.user, data.player, ...(data.friends ?? []), ...(data.incoming ?? []), ...(data.outgoing ?? [])];
+    await Promise.all(people.map(inlinePicture));
+    return data;
+  }
+
   // Friends calls answer { ok, ...data } or { ok: false, error }, never throw.
   async function friendsCall(pathname, options) {
     if (!token && !guestToken) return { ok: false, noAccount: true, error: "Turn on friends first." };
     try {
       const r = await call(pathname, { ...options, as: "friends" });
-      return r.ok ? { ok: true, ...r.data } : { ok: false, status: r.status, error: r.data.error || "The master server said no." };
+      return r.ok ? inlinePictures({ ok: true, ...r.data }) : { ok: false, status: r.status, error: r.data.error || "The master server said no." };
     } catch {
       return { ok: false, offline: true, error: "Can't reach the master server." };
     }
@@ -145,7 +173,7 @@ function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openE
       if (token && !user) {
         try {
           const r = await call("/api/me");
-          if (r.ok) user = r.data.user;
+          if (r.ok) user = (await inlinePictures({ user: r.data.user })).user;
         } catch {
           // offline
         }
@@ -248,7 +276,29 @@ function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openE
     dropRequest: (id) => friendsCall(`/api/friends/requests/${id}`, { method: "DELETE" }),
     removeFriend: (id) => friendsCall(`/api/friends/${id}`, { method: "DELETE" }),
     resetFriendCode: () => friendsCall("/api/friends/code", { method: "POST" }),
-    reportPresence: (name, serverId) => friendsCall("/api/presence", { method: "PUT", body: { name, serverId }, timeoutMs: 5000 })
+    messages: (id, after) => friendsCall(`/api/friends/${id}/messages${after ? `?after=${after}` : ""}`),
+    sendMessage: (id, text) => friendsCall(`/api/friends/${id}/messages`, { method: "POST", body: { text } }),
+    reportPresence: (name, serverId) => friendsCall("/api/presence", { method: "PUT", body: { name, serverId }, timeoutMs: 5000 }),
+    clearPresence: () => friendsCall("/api/presence", { method: "DELETE", timeoutMs: 5000 }),
+
+    // ---- The player's own profile, for whichever account friends use ----
+    me: () => friendsCall("/api/me"),
+    updateProfile: (patch) => friendsCall("/api/me", { method: "PUT", body: patch }),
+    setPicture: (type, data) => friendsCall("/api/me/avatar", { method: "PUT", body: { type, data }, timeoutMs: 15000 }),
+    removePicture: () => friendsCall("/api/me/avatar", { method: "DELETE" }),
+
+    // Deletes the account on the master server, then forgets it here.
+    async deleteAccount() {
+      const r = await friendsCall("/api/me", { method: "DELETE" });
+      if (!r.ok) return r;
+      token = "";
+      user = null;
+      guestToken = "";
+      tokenStore.clear();
+      guestStore.clear();
+      logger.info("Account deleted on the master server");
+      return { ok: true };
+    }
   };
 }
 

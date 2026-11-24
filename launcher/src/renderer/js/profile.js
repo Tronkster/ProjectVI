@@ -3,14 +3,16 @@
 import { $, api, esc } from "./util.js";
 import { state, emit } from "./state.js";
 import { openDialog } from "./ui/dialog.js";
-import { avatarHtml } from "./account.js";
+import { avatarHtml, ownAvatarStyle } from "./account.js";
 
 export function renderProfile() {
   const name = state.settings.playerName.trim();
   const user = state.auth?.user;
   $("profile-name").textContent = name || "Set your name";
-  $("profile-avatar").innerHTML = avatarHtml();
-  $("menu-avatar").innerHTML = avatarHtml();
+  for (const id of ["profile-avatar", "menu-avatar"]) {
+    $(id).innerHTML = avatarHtml();
+    $(id).setAttribute("style", ownAvatarStyle());
+  }
   $("menu-name").textContent = name || user?.name || "No name yet";
   $("menu-sub").textContent = user ? `Logged in as ${user.username}` : "Guest";
   $("menu-account-items").innerHTML = user

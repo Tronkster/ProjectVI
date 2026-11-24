@@ -28,13 +28,13 @@ function page(res, status, title, text) {
 <div style="max-width:420px;text-align:center"><h1 style="font-size:22px">${esc(title)}</h1><p style="color:#8b93a1">${esc(text)}</p></div>`);
 }
 
-function readJson(req) {
+function readJson(req, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on("data", (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         reject(new Error("Body too large."));
         req.destroy();
         return;

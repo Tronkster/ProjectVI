@@ -1,7 +1,7 @@
 {
   "name": "projectvi-launcher",
   "productName": "ProjectVI",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Desktop launcher for ProjectVI: server browser, mods, profile and game launch.",
   "license": "MIT",

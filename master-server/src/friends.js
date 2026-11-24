@@ -1,4 +1,5 @@
-// Friends: friend codes, requests, the friends list, and presence (online, and on which server).
+// Friends: friend codes, requests, the friends list, presence (online, and on which server)
+// and messages between friends.
 //
 // Works for Discord accounts and for guest accounts alike (see POST /auth/guest in auth.js).
 // Presence lives in memory only: the launcher reports in every minute while it's open,
@@ -12,6 +13,9 @@ const MAX_OUTGOING = 50;
 const REQUESTS_PER_HOUR = 30;
 const PRESENCE_EVERY_S = 60;
 const OFFLINE_AFTER_MS = 150_000;
+const MAX_MESSAGE = 500;
+const MESSAGES_PER_MINUTE = 30;
+const MESSAGE_DAYS = 30; // older messages are deleted
 
 const formatCode = (code) => `${code.slice(0, 4)}-${code.slice(4)}`;
 
@@ -23,6 +27,7 @@ function cleanName(value) {
 function createFriends({ db, now, sessionUser, getServer, publicUser }) {
   const presence = new Map(); // user id -> { at, serverId }
   const sent = new Map(); // user id -> { windowStart, count }, to slow down code guessing
+  const messageHits = new Map(); // user id -> { windowStart, count }
 
   function presenceOf(userId) {
     const p = presence.get(userId);
@@ -32,12 +37,13 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
   }
 
   function person(row) {
-    const { name, avatarUrl, provider } = publicUser(row);
-    return { id: String(row.id), name, avatarUrl, provider };
+    const { name, avatarUrl, color, provider } = publicUser(row);
+    return { id: String(row.id), name, avatarUrl, color, provider };
   }
 
   function overview(user) {
-    const friends = db.friends(user.id).map((row) => ({ ...person(row), since: row.since, ...presenceOf(row.id) }));
+    const unread = db.unreadCounts(user.id);
+    const friends = db.friends(user.id).map((row) => ({ ...person(row), since: row.since, unread: unread.get(row.id) ?? 0, ...presenceOf(row.id) }));
     // Playing first, then online, then the rest; names within each group.
     const rank = (f) => (f.server ? 0 : f.online ? 1 : 2);
     friends.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
@@ -78,6 +84,7 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
       return [200, { ok: true, result: "friends", player: person(other) }];
     }
     if (db.hasRequest(user.id, other.id)) return [200, { ok: true, result: "sent", player: person(other) }];
+    if (other.friend_requests_open === 0) return [403, { error: `${person(other).name} isn't taking friend requests right now.` }];
     if (db.outgoingCount(user.id) >= MAX_OUTGOING) {
       return [409, { error: `You have ${MAX_OUTGOING} requests waiting. Cancel some first.` }];
     }
@@ -86,7 +93,41 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
     return [200, { ok: true, result: "sent", player: person(other) }];
   }
 
-  const ROUTE = /^\/api\/friends(?:\/(requests|code))?(?:\/(\d{1,15}))?(?:\/(accept))?$/;
+  function messageOut(row, userId) {
+    return { id: String(row.id), from: row.from_id === userId ? "me" : "them", text: row.text, sentAt: row.sent_at, read: row.read_at !== null };
+  }
+
+  function overMessageLimit(userId) {
+    const t = now();
+    const entry = messageHits.get(userId);
+    if (!entry || t - entry.windowStart > 60_000) {
+      messageHits.set(userId, { windowStart: t, count: 1 });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > MESSAGES_PER_MINUTE;
+  }
+
+  // GET and POST /api/friends/<id>/messages. Only friends can write to each other.
+  async function messages(req, res, url, user, otherId, reply, body) {
+    if (!db.areFriends(user.id, otherId)) return reply(404, { error: "That player isn't on your friends list." });
+    if (req.method === "GET") {
+      const after = Number(url.searchParams.get("after") || 0);
+      const list = db.conversation(user.id, otherId, Number.isSafeInteger(after) && after > 0 ? after : 0);
+      db.markRead(user.id, otherId, now()); // reading the conversation reads their messages
+      return reply(200, { messages: list.map((m) => messageOut(m, user.id)) });
+    }
+    if (req.method !== "POST") return reply(405, { error: "Use GET or POST." });
+    const [data, error] = await body();
+    if (error) return reply(400, { error });
+    const text = typeof data?.text === "string" ? data.text.replace(/[^\P{Cc}\n]/gu, "").trim() : "";
+    if (!text) return reply(400, { error: "Write something first." });
+    if (text.length > MAX_MESSAGE) return reply(400, { error: `Messages can be up to ${MAX_MESSAGE} characters.` });
+    if (overMessageLimit(user.id)) return reply(429, { error: "Slow down a little: too many messages in a minute." });
+    return reply(200, { message: messageOut(db.addMessage(user.id, otherId, text, now()), user.id) });
+  }
+
+  const ROUTE = /^\/api\/friends(?:\/(requests|code))?(?:\/(\d{1,15}))?(?:\/(accept|messages))?$/;
 
   // Returns true if it handled the request.
   async function handle(req, res, url) {
@@ -128,8 +169,13 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
       return reply(200, { ok: true, nextInSeconds: PRESENCE_EVERY_S });
     }
 
-    const [, kind, idText, accept] = match;
+    const [, kind, idText, action] = match;
     const otherId = idText ? Number(idText) : null;
+    if (action === "messages") {
+      if (kind || !otherId) return reply(404, { error: "Not found." });
+      return messages(req, res, url, user, otherId, reply, body);
+    }
+    const accept = action === "accept";
 
     if (!kind && !otherId) {
       if (req.method !== "GET") return reply(405, { error: "Use GET." });
@@ -180,9 +226,14 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
     const t = now();
     for (const [id, p] of presence) if (t - p.at > OFFLINE_AFTER_MS) presence.delete(id);
     for (const [id, s] of sent) if (t - s.windowStart > 3_600_000) sent.delete(id);
+    for (const [id, s] of messageHits) if (t - s.windowStart > 60_000) messageHits.delete(id);
+    db.deleteMessagesBefore(t - MESSAGE_DAYS * 86_400_000);
   }
 
-  return { handle, sweep };
+  // A deleted account drops off friends lists at once, not after the presence timeout.
+  const forget = (userId) => presence.delete(userId);
+
+  return { handle, sweep, forget };
 }
 
 module.exports = { createFriends, MAX_FRIENDS, MAX_OUTGOING, OFFLINE_AFTER_MS };

@@ -29,7 +29,16 @@ contextBridge.exposeInMainWorld("launcher", {
     accept: invoke("friends:accept"),
     dropRequest: invoke("friends:dropRequest"),
     remove: invoke("friends:remove"),
-    resetCode: invoke("friends:resetCode")
+    resetCode: invoke("friends:resetCode"),
+    messages: invoke("friends:messages"),
+    send: invoke("friends:send")
+  },
+  me: {
+    get: invoke("me:get"),
+    update: invoke("me:update"),
+    setPicture: invoke("me:setPicture"),
+    removePicture: invoke("me:removePicture"),
+    deleteAccount: invoke("me:deleteAccount")
   },
   servers: {
     list: invoke("servers:list"),

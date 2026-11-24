@@ -46,10 +46,11 @@ Only what's needed:
 
 | Table | Contents |
 | --- | --- |
-| `users` | Discord user id, username, display name, avatar hash, first and last login time. Guests: a random id and their in-game name. Everyone with friends: a friend code |
+| `users` | Discord user id, username, display name, avatar hash, first and last login time. Guests: a random id and their in-game name. Everyone with friends: a friend code, whether they take friend requests, a color and an optional picture (up to 32 KB) |
 | `sessions` | SHA-256 of each launcher session token (never the token itself), with a 90-day expiry |
 | `favorites` | Server ids a logged-in player starred, if they turned on favorites sync |
 | `friends`, `friend_requests` | Who is friends with whom, and requests waiting, with their times |
+| `messages` | Messages between friends: sender, receiver, text, sent and read time. Deleted after 30 days, or when the two stop being friends |
 
 Who is online and on which server is only kept in memory. Guest accounts are made when a player turns on friends without logging in; they are deleted once their session is gone, and merged into the Discord account when the guest logs in.
 

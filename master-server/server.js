@@ -9,6 +9,7 @@ const { clientIp, send, readJson } = require("./src/http-util");
 const { openDatabase } = require("./src/db");
 const { createAuth, publicUser } = require("./src/auth");
 const { createFriends } = require("./src/friends");
+const { createProfile } = require("./src/profile");
 
 const MODES = ["Roleplay", "Racing", "Freeroam", "Other"];
 
@@ -68,6 +69,7 @@ function createMasterServer({
       return s && s.lastSeen >= now() - staleAfterMs ? s : null;
     }
   });
+  const profile = createProfile({ db, sessionUser: auth.sessionUser, publicUser, onDeleted: friends.forget });
 
   function rateLimited(ip) {
     const t = now();
@@ -119,6 +121,7 @@ function createMasterServer({
         return send(res, 200, { ok: true });
       }
 
+      if (await profile.handle(req, res, url)) return;
       if (await auth.handle(req, res, url)) return;
       if (await friends.handle(req, res, url)) return;
 

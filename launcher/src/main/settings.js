@@ -22,7 +22,10 @@ const SCHEMA = {
   askAboveMb: { type: "int", min: 0, max: 100_000, default: 500 },
   parallelDownloads: { type: "int", min: 1, max: 8, default: 4 },
   syncFavorites: { type: "bool", default: true },
+  // Friends. Who may send requests is stored on the master server, not here.
   shareServerWithFriends: { type: "bool", default: true }, // off: friends see "Online", not the server
+  appearOffline: { type: "bool", default: false },
+  messageNotifications: { type: "bool", default: true },
   startWithWindows: { type: "bool", default: false },
   closeToTray: { type: "bool", default: false },
   autoUpdate: { type: "bool", default: true },

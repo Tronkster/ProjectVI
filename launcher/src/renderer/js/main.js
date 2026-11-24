@@ -5,6 +5,7 @@ import { state, on, emit } from "./state.js";
 import { initServers, renderServers, refreshServers } from "./views/servers.js";
 import { renderFavorites } from "./views/favorites.js";
 import { initFriends, renderFriends, refreshFriends } from "./views/friends.js";
+import { initMe, renderMe, refreshMe } from "./me.js";
 import { fill as fillSettings, initSettings, scrollToSection, updateCacheSize } from "./views/settings.js";
 import { initMods, loadMods, modsLoaded, renderMods } from "./views/mods.js";
 import { initProfile, renderProfile } from "./profile.js";
@@ -71,6 +72,8 @@ function initGlobalEvents() {
     const join = e.target.closest("[data-connect]");
     if (join) return connect(join.dataset.connect, go);
     const open = e.target.closest("[data-open]");
+    const goTo = e.target.closest("[data-go]");
+    if (goTo && !goTo.closest("#profile-menu")) return go(goTo.dataset.go);
     if (open) {
       const res = await api.system.openFolder(open.dataset.open);
       if (!res.ok) showToast("Couldn't open that folder.");
@@ -101,6 +104,7 @@ async function start() {
     renderProfile();
     renderServers();
     renderFavorites();
+    renderMe();
     if (prev && prev.masterUrl.trim() !== state.settings.masterUrl.trim()) {
       refreshServers();
       refreshAuth(); // a different master server may have a different login
@@ -117,12 +121,18 @@ async function start() {
     renderAccount();
     renderProfile();
     refreshFriends(); // logging in or out changes which account friends use
+    refreshMe();
+  });
+  on("me", () => {
+    renderMe();
+    renderProfile();
   });
 
   initAccount();
   initUpdates();
   initMods();
   initProfile(go);
+  initMe();
   initFriends();
   initGlobalEvents();
   renderMods();

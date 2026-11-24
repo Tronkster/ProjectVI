@@ -25,12 +25,16 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+// avatarUrl is a picture the player uploaded (a path on this server), else their Discord picture.
+// color is the background for their initials when there's no picture.
 function publicUser(row) {
+  const discordAvatar = row.avatar ? `https://cdn.discordapp.com/avatars/${row.provider_id}/${row.avatar}.png?size=128` : "";
   return {
     name: row.display_name,
     username: row.username,
     provider: row.provider,
-    avatarUrl: row.avatar ? `https://cdn.discordapp.com/avatars/${row.provider_id}/${row.avatar}.png?size=128` : ""
+    avatarUrl: row.avatar_key ? `/avatars/${row.avatar_key}` : discordAvatar,
+    color: row.avatar_color || ""
   };
 }
 
@@ -216,14 +220,15 @@ function createAuth({ db, discord, publicUrl, now }) {
       return true;
     }
 
-    if (pathname === "/api/me" || pathname === "/api/me/favorites") {
+    // Other methods on /api/me are the profile module's (src/profile.js).
+    if ((pathname === "/api/me" && req.method === "GET") || pathname === "/api/me/favorites") {
       const user = sessionUser(req);
       if (!user) {
         send(res, 401, { error: "Not logged in." });
         return true;
       }
       if (req.method === "GET" && pathname === "/api/me") {
-        send(res, 200, { user: publicUser(user) });
+        send(res, 200, { user: publicUser(user), acceptRequests: user.friend_requests_open !== 0 });
         return true;
       }
       if (req.method === "GET") {

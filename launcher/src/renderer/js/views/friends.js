@@ -1,12 +1,13 @@
 // Friends: your friend code, requests, and who's online and where. Joining a friend uses the
 // normal join flow, by server id, so it only works for servers on the master server's list.
 
-import { $, api, esc, initials } from "../util.js";
+import { $, api, esc } from "../util.js";
 import { state } from "../state.js";
 import { ensurePlayerName } from "../profile.js";
 import { stateHtml } from "./servers.js";
 import { openDialog, confirmDialog } from "../ui/dialog.js";
 import { showToast } from "../ui/toast.js";
+import { avatarInner, avatarStyle, refreshMe } from "../me.js";
 
 const REFRESH_EVERY_MS = 30_000;
 let data = null; // last answer from friends:list
@@ -14,9 +15,6 @@ let loading = false;
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-function avatar(p) {
-  return p.avatarUrl ? `<img src="${esc(p.avatarUrl)}" alt="">` : esc(initials(p.name));
-}
 
 function statusOf(f) {
   if (f.server) return `<span class="presence playing"><i></i>Playing on ${esc(f.server.name)}</span>`;
@@ -27,7 +25,7 @@ function statusOf(f) {
 function row(p, status, actions) {
   return `
     <li class="friend">
-      <span class="avatar avatar-lg">${avatar(p)}</span>
+      <span class="avatar avatar-lg"${avatarStyle(p)}>${avatarInner(p)}</span>
       <div class="friend-who"><strong>${esc(p.name)}</strong>${status}</div>
       <div class="friend-actions">${actions}</div>
     </li>`;
@@ -80,18 +78,23 @@ export function renderFriends() {
 
   actions.hidden = false;
   $("friend-code").textContent = data.code;
+  $("account-code").textContent = data.code;
+  state.friendCode = data.code;
   const online = data.friends.filter((f) => f.online).length;
   $("friends-sub").textContent = data.friends.length
     ? `${online} of ${plural(data.friends.length, "friend", "friends")} online`
     : "Share your code, or add a friend with theirs.";
-  badge.hidden = !data.incoming.length;
-  badge.textContent = data.incoming.length > 9 ? "9+" : String(data.incoming.length);
+  // The rail badge counts friend requests plus unread messages.
+  const waiting = data.incoming.length + data.friends.reduce((sum, f) => sum + (f.unread || 0), 0);
+  badge.hidden = !waiting;
+  badge.textContent = waiting > 9 ? "9+" : String(waiting);
 
   const incoming = data.incoming.map((p) => row(p, '<span class="presence">Wants to be friends</span>', `
     <button type="button" class="btn btn-accent btn-sm" data-friends="accept" data-id="${esc(p.id)}">Accept</button>
     <button type="button" class="btn btn-ghost btn-sm" data-friends="decline" data-id="${esc(p.id)}">Decline</button>`));
   const friends = data.friends.map((f) => row(f, statusOf(f), `
     ${f.server ? `<button type="button" class="btn btn-accent btn-sm" data-connect="${esc(f.server.id)}">Join</button>` : ""}
+    <button type="button" class="btn btn-ghost btn-sm" data-friends="chat" data-id="${esc(f.id)}">Message${f.unread ? ` <span class="count">${f.unread > 9 ? "9+" : f.unread}</span>` : ""}</button>
     <button type="button" class="icon-btn icon-btn-sm" data-friends="remove" data-id="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Remove ${esc(f.name)}" title="Remove friend">
       <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>`));
@@ -107,11 +110,35 @@ export async function refreshFriends() {
   if (loading) return;
   loading = true;
   try {
+    const before = data;
     data = await api.friends.list();
+    notifyNewMessages(before, data);
   } finally {
     loading = false;
   }
   renderFriends();
+}
+
+let chatOpenWith = ""; // the friend whose conversation is open: no notifications for them
+
+// A notification (and a toast) when a friend's unread count goes up since the last check.
+// Only while the launcher isn't in front for the system notification; the toast always shows.
+function notifyNewMessages(before, now) {
+  if (!before?.ok || !now?.ok || !state.settings.messageNotifications) return;
+  const was = new Map(before.friends.map((f) => [f.id, f.unread || 0]));
+  for (const f of now.friends) {
+    if (!f.unread || f.unread <= (was.get(f.id) ?? 0) || f.id === chatOpenWith) continue;
+    const text = f.unread === 1 ? `${f.name} sent you a message.` : `${f.name} sent you ${f.unread} messages.`;
+    if (!document.hasFocus() && "Notification" in window) {
+      const note = new Notification("ProjectVI", { body: text, silent: false });
+      note.onclick = () => {
+        window.focus();
+        openChat(f.id);
+      };
+    } else {
+      showToast(text);
+    }
+  }
 }
 
 // Most friends calls answer with the whole new list; use it, or reload on anything else.
@@ -134,7 +161,7 @@ async function start() {
   if (!(await ensurePlayerName({ action: "Save and turn on friends" }))) return;
   const res = await api.friends.start();
   if (!res.ok) showToast(res.error);
-  await refreshFriends();
+  await Promise.all([refreshFriends(), refreshMe()]);
 }
 
 async function addFriend() {
@@ -195,6 +222,98 @@ async function remove(id, name) {
   if (ok) await apply(api.friends.remove(id), `Removed ${name}.`);
 }
 
+// ---- Messages ----
+const CHAT_POLL_MS = 3000;
+
+function timeOf(ms) {
+  const d = new Date(ms);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function bubble(m) {
+  return `<div class="msg ${m.from === "me" ? "mine" : ""}"><p>${esc(m.text)}</p><time>${esc(timeOf(m.sentAt))}</time></div>`;
+}
+
+async function openChat(id) {
+  const friend = data?.friends.find((f) => f.id === id);
+  if (!friend) return;
+  let lastId = "";
+  let log = null;
+
+  function append(list) {
+    if (!list.length || !log) return;
+    const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.querySelector(".chat-empty")?.remove();
+    log.insertAdjacentHTML("beforeend", list.map(bubble).join(""));
+    lastId = list.at(-1).id;
+    if (nearBottom || list.some((m) => m.from === "me")) log.scrollTop = log.scrollHeight;
+  }
+
+  // One request at a time, so the timer and a send can't both append the same messages.
+  let inFlight = null;
+  function poll() {
+    inFlight ??= api.friends.messages(id, lastId || undefined)
+      .then((res) => {
+        if (res.ok) append(res.messages.filter((m) => !lastId || Number(m.id) > Number(lastId)));
+      })
+      .finally(() => { inFlight = null; });
+    return inFlight;
+  }
+
+  const timer = setInterval(poll, CHAT_POLL_MS);
+  chatOpenWith = id;
+  const where = friend.server ? `Playing on ${friend.server.name}` : friend.online ? "Online" : "Offline";
+  await openDialog({
+    title: friend.name,
+    html: `
+      <p class="chat-where">${esc(where)}</p>
+      <div class="chat-log" id="chat-log"><p class="chat-empty">No messages yet. Say hi.</p></div>
+      <div class="field chat-input">
+        <input id="chat-text" maxlength="500" autocomplete="off" placeholder="Write a message" aria-label="Message to ${esc(friend.name)}">
+      </div>
+      <p class="hint">Messages are kept for 30 days. Removing a friend deletes your conversation.</p>`,
+    cancelValue: null,
+    onReady: async (dlg) => {
+      dlg.classList.add("dialog-chat");
+      log = dlg.querySelector("#chat-log");
+      dlg.querySelector("#chat-text").focus();
+      await poll();
+      log.scrollTop = log.scrollHeight;
+    },
+    actions: [
+      { label: "Close", value: null, kind: "ghost" },
+      {
+        label: "Send",
+        kind: "accent",
+        // Sending keeps the conversation open.
+        validate: async (dlg) => {
+          const input = dlg.querySelector("#chat-text");
+          const text = input.value.trim();
+          if (!text) return false;
+          input.disabled = true;
+          const res = await api.friends.send(id, text);
+          input.disabled = false;
+          input.focus();
+          if (!res.ok) {
+            showToast(res.error);
+            return false;
+          }
+          input.value = "";
+          await poll();
+          return false;
+        }
+      }
+    ]
+  });
+  clearInterval(timer);
+  chatOpenWith = "";
+  document.querySelector("#dialog")?.classList.remove("dialog-chat");
+  refreshFriends(); // unread counts changed
+}
+
 export function initFriends() {
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-friends]");
@@ -212,6 +331,7 @@ export function initFriends() {
       case "decline": return apply(api.friends.dropRequest(id), "Request declined.");
       case "cancel": return apply(api.friends.dropRequest(id), "Request cancelled.");
       case "remove": return remove(id, name);
+      case "chat": return openChat(id);
     }
   });
   // Keeps the request badge and online states fresh, wherever the player is in the launcher.
