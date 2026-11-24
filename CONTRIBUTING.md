@@ -13,7 +13,7 @@ Thanks for helping. This guide covers setup, how the repo is organized and what 
 You need Node 22.13 or newer and Git.
 
 ```sh
-git clone https://github.com/OWNER/REPO.git projectvi
+git clone https://github.com/hfnissum-byte/ProjectVI.git projectvi
 cd projectvi
 npm install          # installs every workspace, including Electron
 npm test             # runs all tests
