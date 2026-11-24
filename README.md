@@ -73,7 +73,7 @@ docs/              Guides
 ## Before the first release
 
 1. Create the GitHub repository and set `REPO` in [`packages/shared/project.js`](packages/shared/project.js). This turns on auto-update and the public mod registry.
-2. Create the `<repo>-mods` repository with `registry/index.json` in it.
+2. Create the mods repository with `registry/index.json` in it, and set `MODS_REPO` in [`packages/shared/project.js`](packages/shared/project.js). This project's is [Tronkster/ProjectVI-mods](https://github.com/Tronkster/ProjectVI-mods).
 3. Tag a version, for example `git tag v0.2.0 && git push --tags`. The release workflow builds the installer and publishes it.
 
 Builds aren't code-signed yet, so Windows SmartScreen warns on first install. Choose **More info → Run anyway**.

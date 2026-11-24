@@ -1,12 +1,12 @@
 # Mod registry
 
-The public mod list is one JSON file, `index.json`, in its own GitHub repository (`<owner>/<repo>-mods`). The launcher reads it from:
+The public mod list is one JSON file, `index.json`, in its own GitHub repository, [Tronkster/ProjectVI-mods](https://github.com/Tronkster/ProjectVI-mods) (`MODS_REPO` in `packages/shared/project.js`). Mod authors add their mods there with a pull request. The launcher reads it from:
 
 ```
-https://raw.githubusercontent.com/<owner>/<repo>-mods/main/index.json
+https://raw.githubusercontent.com/Tronkster/ProjectVI-mods/main/index.json
 ```
 
-This repo's `registry/` folder holds the format, the validator and a local dev registry. It moves to its own repository once the project's GitHub organization exists. Until then the launcher shows "Mod registry not published yet".
+This repo's `registry/` folder holds the format, the validator (the mods repository's CI runs it from here) and a local dev registry.
 
 ## Format
 
