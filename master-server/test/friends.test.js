@@ -186,3 +186,60 @@ test("guests without a session are cleaned up", () => {
   assert.equal(db.userById(guest.id), null);
   db.close();
 });
+
+test("friends can write to each other; unread counts clear when read", async () => {
+  const s = await setup();
+  try {
+    const ana = await s.guest("Ana");
+    const ben = await s.guest("Ben");
+    await s.guest("Cy"); // exists, but isn't a friend of Ana
+    await ana.me("/api/friends/requests", "POST", { code: ben.code });
+    await ben.me("/api/friends/requests", "POST", { code: ana.code });
+    const benId = (await ana.me("/api/friends")).data.friends[0].id;
+    const anaId = (await ben.me("/api/friends")).data.friends[0].id;
+
+    const sent = await ana.me(`/api/friends/${benId}/messages`, "POST", { text: "  join me on Vice Nights\u0007 " });
+    assert.equal(sent.status, 200);
+    assert.equal(sent.data.message.text, "join me on Vice Nights");
+    assert.equal(sent.data.message.from, "me");
+    await ana.me(`/api/friends/${benId}/messages`, "POST", { text: "line one\nline two" });
+
+    assert.equal((await ben.me("/api/friends")).data.friends[0].unread, 2);
+    const read = await ben.me(`/api/friends/${anaId}/messages`);
+    assert.deepEqual(read.data.messages.map((m) => [m.from, m.text]), [["them", "join me on Vice Nights"], ["them", "line one\nline two"]]);
+    assert.equal((await ben.me("/api/friends")).data.friends[0].unread, 0);
+
+    const after = await ben.me(`/api/friends/${anaId}/messages?after=${read.data.messages[0].id}`);
+    assert.equal(after.data.messages.length, 1);
+
+    assert.equal((await ana.me(`/api/friends/${benId}/messages`, "POST", { text: " " })).status, 400);
+    assert.equal((await ana.me(`/api/friends/${benId}/messages`, "POST", { text: "x".repeat(501) })).status, 400);
+    const cyId = String(Number(benId) + 1); // made right after Ben, and not a friend of Ana
+    assert.equal((await ana.me(`/api/friends/${cyId}/messages`, "POST", { text: "hi" })).status, 404); // not a friend
+
+    // Unfriending deletes the conversation.
+    await ana.me(`/api/friends/${benId}`, "DELETE");
+    await ana.me("/api/friends/requests", "POST", { code: ben.code });
+    await ben.me("/api/friends/requests", "POST", { code: ana.code });
+    assert.equal((await ana.me(`/api/friends/${benId}/messages`)).data.messages.length, 0);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("too many messages in a minute get 429", async () => {
+  const s = await setup();
+  try {
+    const ana = await s.guest("Ana");
+    const ben = await s.guest("Ben");
+    await ana.me("/api/friends/requests", "POST", { code: ben.code });
+    await ben.me("/api/friends/requests", "POST", { code: ana.code });
+    const benId = (await ana.me("/api/friends")).data.friends[0].id;
+    for (let i = 0; i < 30; i++) assert.equal((await ana.me(`/api/friends/${benId}/messages`, "POST", { text: `${i}` })).status, 200);
+    assert.equal((await ana.me(`/api/friends/${benId}/messages`, "POST", { text: "one more" })).status, 429);
+    s.tick(61_000);
+    assert.equal((await ana.me(`/api/friends/${benId}/messages`, "POST", { text: "later" })).status, 200);
+  } finally {
+    await s.cleanup();
+  }
+});

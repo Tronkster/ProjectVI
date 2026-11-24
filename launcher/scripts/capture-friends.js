@@ -37,6 +37,11 @@ async function seed(win) {
   await call(ben.token, "PUT", "/api/presence", { name: "BenTheWheelman" });
   await call(cy.token, "POST", "/api/friends/requests", { code: mine });
   await win.webContents.executeJavaScript(`launcher.friends.add(${JSON.stringify(dee.code)})`);
+  // A short conversation with Ana, the last message unread.
+  const kai = (await call(ana.token, "GET", "/api/friends")).friends.find((f) => f.name === "Kai");
+  const anaId = (await win.webContents.executeJavaScript("launcher.friends.list()")).friends.find((f) => f.name === "Ana_Ruiz").id;
+  await win.webContents.executeJavaScript(`launcher.friends.send(${JSON.stringify(anaId)}, "You on tonight?")`);
+  await call(ana.token, "POST", `/api/friends/${kai.id}/messages`, { text: "Already in, we're doing the harbor heist. Join me!" });
 }
 
 module.exports = {
@@ -49,6 +54,7 @@ module.exports = {
     { name: "friends-02-empty", run: 'document.querySelector("[data-friends=start]").click()', wait: 1500 },
     { name: "friends-03-list", main: seed, run: 'document.querySelector("[data-view=friends]").click()', wait: 1500 },
     { name: "friends-04-add", run: 'document.querySelector("[data-friends=add]").click(); document.getElementById("dialog-code").value = "k7qp-2m9x"', wait: 600 },
-    { name: "friends-05-remove", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=remove]").click()', wait: 600 }
+    { name: "friends-05-chat", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=chat]").click()', wait: 1200 },
+    { name: "friends-06-remove", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=remove]").click()', wait: 600 }
   ]
 };

@@ -248,6 +248,8 @@ function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openE
     dropRequest: (id) => friendsCall(`/api/friends/requests/${id}`, { method: "DELETE" }),
     removeFriend: (id) => friendsCall(`/api/friends/${id}`, { method: "DELETE" }),
     resetFriendCode: () => friendsCall("/api/friends/code", { method: "POST" }),
+    messages: (id, after) => friendsCall(`/api/friends/${id}/messages${after ? `?after=${after}` : ""}`),
+    sendMessage: (id, text) => friendsCall(`/api/friends/${id}/messages`, { method: "POST", body: { text } }),
     reportPresence: (name, serverId) => friendsCall("/api/presence", { method: "PUT", body: { name, serverId }, timeoutMs: 5000 })
   };
 }

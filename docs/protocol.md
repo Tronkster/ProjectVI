@@ -42,15 +42,18 @@ Calls marked 🔒 need `Authorization: Bearer <token>`. A token comes from Disco
 | `DELETE` 🔒 | `/api/friends/requests/<id>` | | declines their request or cancels yours; same answer |
 | `DELETE` 🔒 | `/api/friends/<id>` | | removes the friend on both sides; same answer |
 | `POST` 🔒 | `/api/friends/code` | | `{ code }`: a new friend code. The old one stops working |
+| `GET` 🔒 | `/api/friends/<id>/messages` | `?after=<message id>` | `{ messages }`: the newest 50 (after that id), oldest first. Marks theirs as read |
+| `POST` 🔒 | `/api/friends/<id>/messages` | `{ text }` | `{ message }` |
 | `PUT` 🔒 | `/api/presence` | `{ name?, serverId? }` | `{ ok, nextInSeconds: 60 }` |
 | `DELETE` 🔒 | `/api/presence` | | `{ ok }`: shows as offline right away |
 
-A player in these lists is `{ id, name, avatarUrl, provider }`. Friends also have `since`, `online` and `server` (`{ id, name }` or `null`); requests have `requestedAt`. Friends are sorted playing, then online, then offline.
+A player in these lists is `{ id, name, avatarUrl, provider }`. Friends also have `since`, `unread` (messages from them not read yet), `online` and `server` (`{ id, name }` or `null`); requests have `requestedAt`. Friends are sorted playing, then online, then offline.
 
 - Friend codes are 8 characters from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, shown as `K7QP-2M9X`. Case, spaces and dashes are ignored when typed. There's no search by name.
 - Sending a request to someone who already asked you makes you friends straight away.
 - Limits: 200 friends, 50 requests waiting, 30 requests sent an hour.
 - The launcher reports presence every 60 seconds while it's open and the player has a friends account, with `serverId` set while the emulator runs for a server, unless the player turned off "Show friends which server I'm on" in Settings. A player counts as offline 150 seconds after the last report. `server` is only shown for servers on the master server's list, so a friend's server can be joined with the normal join flow. Presence is kept in memory, never stored.
+- A message is `{ id, from: "me" | "them", text, sentAt, read }`. Only friends can write to each other. Up to 500 characters, 30 a minute. Messages are deleted after 30 days, and removing a friend deletes the conversation for both. The launcher checks for new messages every 3 seconds while a conversation is open.
 - A guest's `name` is the in-game name it last reported. Discord players show their Discord display name.
 
 ## Game server (HTTP on the game port)

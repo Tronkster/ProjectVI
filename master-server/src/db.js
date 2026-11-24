@@ -62,6 +62,15 @@ function openDatabase(file = ":memory:") {
       since INTEGER NOT NULL,
       PRIMARY KEY (user_id, friend_id)
     );
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY,
+      from_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      sent_at INTEGER NOT NULL,
+      read_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS messages_pair ON messages(from_id, to_id, id);
   `);
   // Friend codes came after the first release, so older databases get the column here.
   if (!db.prepare("PRAGMA table_info(users)").all().some((c) => c.name === "friend_code")) {
@@ -110,6 +119,20 @@ function openDatabase(file = ":memory:") {
     hasRequest: db.prepare("SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?"),
     addRequest: db.prepare("INSERT OR IGNORE INTO friend_requests (from_id, to_id, created_at) VALUES (?, ?, ?)"),
     deleteRequest: db.prepare("DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?"),
+    addMessage: db.prepare("INSERT INTO messages (from_id, to_id, text, sent_at) VALUES (?, ?, ?, ?) RETURNING *"),
+    // The newest `limit` messages between two players after a message id, oldest first.
+    conversation: db.prepare(`
+      SELECT * FROM (
+        SELECT * FROM messages
+        WHERE ((from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)) AND id > ?
+        ORDER BY id DESC LIMIT ?
+      ) ORDER BY id`),
+    markRead: db.prepare("UPDATE messages SET read_at = ? WHERE from_id = ? AND to_id = ? AND read_at IS NULL"),
+    unread: db.prepare("SELECT from_id, COUNT(*) AS n FROM messages WHERE to_id = ? AND read_at IS NULL GROUP BY from_id"),
+    deleteConversation: db.prepare("DELETE FROM messages WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)"),
+    deleteOldMessages: db.prepare("DELETE FROM messages WHERE sent_at < ?"),
+    moveMessagesFrom: db.prepare("UPDATE messages SET from_id = ? WHERE from_id = ?"),
+    moveMessagesTo: db.prepare("UPDATE messages SET to_id = ? WHERE to_id = ?"),
     // Used when a guest logs in with Discord: everything the guest had moves to the account.
     friendsOfUser: db.prepare("SELECT friend_id, since FROM friends WHERE user_id = ?"),
     requestsFrom: db.prepare("SELECT to_id, created_at FROM friend_requests WHERE from_id = ?"),
@@ -196,7 +219,18 @@ function openDatabase(file = ":memory:") {
     addRequest: (from, to, now) => q.addRequest.run(from, to, now),
     deleteRequest: (from, to) => q.deleteRequest.run(from, to).changes > 0,
     makeFriends: (a, b, now) => transaction(() => makeFriends(a, b, now)),
-    removeFriend: (a, b) => q.removeFriend.run(a, b, b, a).changes > 0,
+    // Unfriending also deletes the conversation, for both players.
+    removeFriend: (a, b) => transaction(() => {
+      q.deleteConversation.run(a, b, b, a);
+      return q.removeFriend.run(a, b, b, a).changes > 0;
+    }),
+
+    // ---- Messages between friends ----
+    addMessage: (from, to, text, now) => q.addMessage.get(from, to, text, now),
+    conversation: (a, b, afterId = 0, limit = 50) => q.conversation.all(a, b, b, a, afterId, limit),
+    markRead: (reader, other, now) => q.markRead.run(now, other, reader),
+    unreadCounts: (userId) => new Map(q.unread.all(userId).map((r) => [r.from_id, r.n])),
+    deleteMessagesBefore: (time) => q.deleteOldMessages.run(time),
 
     // Moves a guest's friends and requests to the account it logged in as, then deletes the guest.
     mergeGuestInto(guestId, userId, now) {
@@ -217,6 +251,8 @@ function openDatabase(file = ":memory:") {
         for (const { to_id: other } of q.requestsFrom.all(userId)) {
           if (q.hasRequest.get(other, userId)) makeFriends(userId, other, now);
         }
+        q.moveMessagesFrom.run(userId, guestId);
+        q.moveMessagesTo.run(userId, guestId);
         q.deleteUser.run(guestId);
       });
     },

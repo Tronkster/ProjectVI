@@ -188,6 +188,12 @@ function registerIpc(ctx) {
   handle("friends:dropRequest", byId((id) => auth.dropRequest(id)));
   handle("friends:remove", byId((id) => auth.removeFriend(id)));
   handle("friends:resetCode", () => auth.resetFriendCode());
+  handle("friends:messages", (id, after) => (typeof id === "string" && FRIEND_ID.test(id) && (after === undefined || (typeof after === "string" && FRIEND_ID.test(after)))
+    ? auth.messages(id, after)
+    : { ok: false, error: "Unknown conversation." }));
+  handle("friends:send", (id, text) => (typeof id === "string" && FRIEND_ID.test(id) && typeof text === "string" && text.length <= 2000
+    ? auth.sendMessage(id, text)
+    : { ok: false, error: "Messages can be up to 500 characters." }));
 
   // ---- Servers ----
   // The last list from the master server. Joins look servers up here, so the renderer

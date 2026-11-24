@@ -50,6 +50,7 @@ Only what's needed:
 | `sessions` | SHA-256 of each launcher session token (never the token itself), with a 90-day expiry |
 | `favorites` | Server ids a logged-in player starred, if they turned on favorites sync |
 | `friends`, `friend_requests` | Who is friends with whom, and requests waiting, with their times |
+| `messages` | Messages between friends: sender, receiver, text, sent and read time. Deleted after 30 days, or when the two stop being friends |
 
 Who is online and on which server is only kept in memory. Guest accounts are made when a player turns on friends without logging in; they are deleted once their session is gone, and merged into the Discord account when the guest logs in.
 
