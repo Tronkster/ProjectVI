@@ -2,7 +2,7 @@
 //
 // "OWNER/REPO" is deliberately unresolvable. Until it's replaced, auto-update and the public
 // mod registry stay switched off instead of pointing at a GitHub account someone else might own.
-const REPO = "hfnissum-byte/ProjectVI";
+const REPO = "Tronkster/ProjectVI";
 // The public mod list's repository. It has an index.json on its main branch.
 const MODS_REPO = "Tronkster/ProjectVI-mods";
 
