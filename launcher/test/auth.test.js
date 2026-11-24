@@ -140,3 +140,22 @@ test("friends work as a guest and move to the Discord account on login", async (
     await s.cleanup();
   }
 });
+
+test("pictures arrive inline, and deleting the account forgets it here", async () => {
+  const s = await setup();
+  try {
+    await s.auth.startGuest("Kai");
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const set = await s.auth.setPicture("image/png", png);
+    assert.equal(set.ok, true, set.error);
+    assert.equal(set.user.avatarUrl, `data:image/png;base64,${png}`); // the page never loads from the master server
+    assert.equal((await s.auth.updateProfile({ color: "#10b981", acceptRequests: false })).acceptRequests, false);
+    assert.equal((await s.auth.me()).user.color, "#10b981");
+
+    assert.equal((await s.auth.deleteAccount()).ok, true);
+    assert.equal(s.auth.hasFriendsAccount(), false);
+    assert.equal((await s.auth.me()).noAccount, true);
+  } finally {
+    await s.cleanup();
+  }
+});

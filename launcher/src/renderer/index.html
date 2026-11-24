@@ -134,6 +134,9 @@
               </button>
             </div>
             <button type="button" class="btn btn-accent" data-friends="add">Add friend</button>
+            <button type="button" class="icon-btn" data-go="settings:friends" aria-label="Friends settings" title="Friends settings">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>
+            </button>
           </div>
         </div>
         <div id="friends-body"></div>
@@ -175,6 +178,7 @@
           <h1>Settings</h1>
           <a href="#set-account" data-section="account">Account</a>
           <a href="#set-profile" data-section="profile">Profile</a>
+          <a href="#set-friends" data-section="friends">Friends</a>
           <a href="#set-game" data-section="game">Game</a>
           <a href="#set-downloads" data-section="downloads">Downloads</a>
           <a href="#set-mods" data-section="mods">Mods</a>
@@ -193,14 +197,33 @@
               <span><strong>Sync favorites</strong><span class="hint">Keep your starred servers the same on every PC you log in on.</span></span>
               <input type="checkbox" class="switch" id="syncFavorites" data-setting="syncFavorites">
             </label>
-            <label class="switch-row">
-              <span><strong>Show friends which server I'm on</strong><span class="hint">When this is off, friends only see that you're online, and they can't join you from their list.</span></span>
-              <input type="checkbox" class="switch" id="shareServerWithFriends" data-setting="shareServerWithFriends">
-            </label>
+            <div class="account-details" id="account-details" hidden>
+              <div class="detail-row"><span>Account</span><strong id="account-type"></strong></div>
+              <div class="detail-row"><span>Friend code</span><strong class="mono" id="account-code"></strong></div>
+              <div class="detail-row danger-row">
+                <span><strong>Delete account</strong><span class="hint">Deletes your account on this master server with your friends, requests, messages and picture. Your settings on this PC stay.</span></span>
+                <button type="button" class="btn btn-danger" id="delete-account">Delete account</button>
+              </div>
+            </div>
           </section>
 
           <section class="set-section" id="set-profile">
             <h2>Profile</h2>
+            <div class="field">
+              <label>Picture</label>
+              <div class="picture-row">
+                <span class="avatar avatar-xl" id="picture-preview"></span>
+                <div class="picture-controls">
+                  <div class="row">
+                    <button type="button" class="btn btn-ghost" id="picture-upload">Upload picture</button>
+                    <button type="button" class="btn btn-ghost" id="picture-remove" hidden>Remove</button>
+                    <input type="file" id="picture-file" accept="image/png,image/jpeg,image/webp" hidden>
+                  </div>
+                  <div class="swatches" id="color-swatches" role="radiogroup" aria-label="Color behind your initials"></div>
+                </div>
+              </div>
+              <p class="hint" id="picture-hint">Friends see your picture, or your initials on the color you pick.</p>
+            </div>
             <div class="field">
               <label for="playerName">In-game name</label>
               <div class="row">
@@ -209,6 +232,27 @@
               </div>
               <p class="hint" id="name-hint">3 to 24 characters: letters, numbers, spaces and _ - .</p>
             </div>
+          </section>
+
+          <section class="set-section" id="set-friends">
+            <h2>Friends</h2>
+            <p class="hint section-hint" id="friends-settings-hint" hidden>Turn on friends on the Friends page to use these.</p>
+            <label class="switch-row">
+              <span><strong>Let players send me friend requests</strong><span class="hint">When this is off, nobody can add you with your code. You can still send requests yourself.</span></span>
+              <input type="checkbox" class="switch" id="acceptRequests">
+            </label>
+            <label class="switch-row">
+              <span><strong>Show friends which server I'm on</strong><span class="hint">When this is off, friends only see that you're online, and they can't join you from their list.</span></span>
+              <input type="checkbox" class="switch" id="shareServerWithFriends" data-setting="shareServerWithFriends">
+            </label>
+            <label class="switch-row">
+              <span><strong>Appear offline</strong><span class="hint">Friends see you as offline, even while you play. You can still write to each other.</span></span>
+              <input type="checkbox" class="switch" id="appearOffline" data-setting="appearOffline">
+            </label>
+            <label class="switch-row">
+              <span><strong>Message notifications</strong><span class="hint">Show a notification when a friend writes to you and the launcher isn't in front.</span></span>
+              <input type="checkbox" class="switch" id="messageNotifications" data-setting="messageNotifications">
+            </label>
           </section>
 
           <section class="set-section" id="set-game">

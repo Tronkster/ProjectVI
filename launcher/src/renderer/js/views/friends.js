@@ -1,12 +1,13 @@
 // Friends: your friend code, requests, and who's online and where. Joining a friend uses the
 // normal join flow, by server id, so it only works for servers on the master server's list.
 
-import { $, api, esc, initials } from "../util.js";
+import { $, api, esc } from "../util.js";
 import { state } from "../state.js";
 import { ensurePlayerName } from "../profile.js";
 import { stateHtml } from "./servers.js";
 import { openDialog, confirmDialog } from "../ui/dialog.js";
 import { showToast } from "../ui/toast.js";
+import { avatarInner, avatarStyle, refreshMe } from "../me.js";
 
 const REFRESH_EVERY_MS = 30_000;
 let data = null; // last answer from friends:list
@@ -14,9 +15,6 @@ let loading = false;
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-function avatar(p) {
-  return p.avatarUrl ? `<img src="${esc(p.avatarUrl)}" alt="">` : esc(initials(p.name));
-}
 
 function statusOf(f) {
   if (f.server) return `<span class="presence playing"><i></i>Playing on ${esc(f.server.name)}</span>`;
@@ -27,7 +25,7 @@ function statusOf(f) {
 function row(p, status, actions) {
   return `
     <li class="friend">
-      <span class="avatar avatar-lg">${avatar(p)}</span>
+      <span class="avatar avatar-lg"${avatarStyle(p)}>${avatarInner(p)}</span>
       <div class="friend-who"><strong>${esc(p.name)}</strong>${status}</div>
       <div class="friend-actions">${actions}</div>
     </li>`;
@@ -80,6 +78,8 @@ export function renderFriends() {
 
   actions.hidden = false;
   $("friend-code").textContent = data.code;
+  $("account-code").textContent = data.code;
+  state.friendCode = data.code;
   const online = data.friends.filter((f) => f.online).length;
   $("friends-sub").textContent = data.friends.length
     ? `${online} of ${plural(data.friends.length, "friend", "friends")} online`
@@ -110,11 +110,35 @@ export async function refreshFriends() {
   if (loading) return;
   loading = true;
   try {
+    const before = data;
     data = await api.friends.list();
+    notifyNewMessages(before, data);
   } finally {
     loading = false;
   }
   renderFriends();
+}
+
+let chatOpenWith = ""; // the friend whose conversation is open: no notifications for them
+
+// A notification (and a toast) when a friend's unread count goes up since the last check.
+// Only while the launcher isn't in front for the system notification; the toast always shows.
+function notifyNewMessages(before, now) {
+  if (!before?.ok || !now?.ok || !state.settings.messageNotifications) return;
+  const was = new Map(before.friends.map((f) => [f.id, f.unread || 0]));
+  for (const f of now.friends) {
+    if (!f.unread || f.unread <= (was.get(f.id) ?? 0) || f.id === chatOpenWith) continue;
+    const text = f.unread === 1 ? `${f.name} sent you a message.` : `${f.name} sent you ${f.unread} messages.`;
+    if (!document.hasFocus() && "Notification" in window) {
+      const note = new Notification("ProjectVI", { body: text, silent: false });
+      note.onclick = () => {
+        window.focus();
+        openChat(f.id);
+      };
+    } else {
+      showToast(text);
+    }
+  }
 }
 
 // Most friends calls answer with the whole new list; use it, or reload on anything else.
@@ -137,7 +161,7 @@ async function start() {
   if (!(await ensurePlayerName({ action: "Save and turn on friends" }))) return;
   const res = await api.friends.start();
   if (!res.ok) showToast(res.error);
-  await refreshFriends();
+  await Promise.all([refreshFriends(), refreshMe()]);
 }
 
 async function addFriend() {
@@ -240,6 +264,7 @@ async function openChat(id) {
   }
 
   const timer = setInterval(poll, CHAT_POLL_MS);
+  chatOpenWith = id;
   const where = friend.server ? `Playing on ${friend.server.name}` : friend.online ? "Online" : "Offline";
   await openDialog({
     title: friend.name,
@@ -284,6 +309,7 @@ async function openChat(id) {
     ]
   });
   clearInterval(timer);
+  chatOpenWith = "";
   document.querySelector("#dialog")?.classList.remove("dialog-chat");
   refreshFriends(); // unread counts changed
 }

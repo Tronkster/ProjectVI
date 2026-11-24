@@ -46,7 +46,7 @@ Only what's needed:
 
 | Table | Contents |
 | --- | --- |
-| `users` | Discord user id, username, display name, avatar hash, first and last login time. Guests: a random id and their in-game name. Everyone with friends: a friend code |
+| `users` | Discord user id, username, display name, avatar hash, first and last login time. Guests: a random id and their in-game name. Everyone with friends: a friend code, whether they take friend requests, a color and an optional picture (up to 32 KB) |
 | `sessions` | SHA-256 of each launcher session token (never the token itself), with a 90-day expiry |
 | `favorites` | Server ids a logged-in player starred, if they turned on favorites sync |
 | `friends`, `friend_requests` | Who is friends with whom, and requests waiting, with their times |

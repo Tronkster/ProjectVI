@@ -77,6 +77,18 @@ function openDatabase(file = ":memory:") {
     db.exec("ALTER TABLE users ADD COLUMN friend_code TEXT");
   }
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_friend_code ON users(friend_code)");
+  // Profile settings, also added after the first release.
+  const columns = new Set(db.prepare("PRAGMA table_info(users)").all().map((c) => c.name));
+  for (const [name, type] of [
+    ["friend_requests_open", "INTEGER NOT NULL DEFAULT 1"],
+    ["avatar_color", "TEXT"],
+    ["avatar_key", "TEXT"],
+    ["avatar_type", "TEXT"],
+    ["avatar_data", "BLOB"]
+  ]) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_avatar_key ON users(avatar_key)");
 
   const q = {
     upsertUser: db.prepare(`
@@ -87,6 +99,10 @@ function openDatabase(file = ":memory:") {
         avatar = excluded.avatar, last_login_at = excluded.last_login_at
       RETURNING *`),
     userById: db.prepare("SELECT * FROM users WHERE id = ?"),
+    setRequestsOpen: db.prepare("UPDATE users SET friend_requests_open = ? WHERE id = ?"),
+    setColor: db.prepare("UPDATE users SET avatar_color = ? WHERE id = ?"),
+    setAvatar: db.prepare("UPDATE users SET avatar_key = ?, avatar_type = ?, avatar_data = ? WHERE id = ?"),
+    avatarByKey: db.prepare("SELECT avatar_type, avatar_data FROM users WHERE avatar_key = ?"),
     insertSession: db.prepare("INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"),
     userForToken: db.prepare(`
       SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
@@ -179,6 +195,17 @@ function openDatabase(file = ":memory:") {
     },
     userById: (id) => q.userById.get(id) ?? null,
     setDisplayName: (userId, name) => q.setDisplayName.run(name, userId),
+    setRequestsOpen: (userId, open) => q.setRequestsOpen.run(open ? 1 : 0, userId),
+    setColor: (userId, color) => q.setColor.run(color || null, userId),
+    // A new key on every upload, so a picture's address never changes what it shows.
+    setAvatar(userId, type, data) {
+      const key = data ? `${crypto.randomBytes(12).toString("hex")}.${type.split("/")[1]}` : null;
+      q.setAvatar.run(key, data ? type : null, data ?? null, userId);
+      return key;
+    },
+    avatarByKey: (key) => q.avatarByKey.get(key) ?? null,
+    // Everything goes with the user row: sessions, favorites, friends, requests and messages.
+    deleteUser: (userId) => q.deleteUser.run(userId),
     // Returns the raw token; only its hash is kept.
     createSession(userId, now, days = SESSION_DAYS) {
       const token = crypto.randomBytes(32).toString("base64url");

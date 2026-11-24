@@ -37,8 +37,8 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
   }
 
   function person(row) {
-    const { name, avatarUrl, provider } = publicUser(row);
-    return { id: String(row.id), name, avatarUrl, provider };
+    const { name, avatarUrl, color, provider } = publicUser(row);
+    return { id: String(row.id), name, avatarUrl, color, provider };
   }
 
   function overview(user) {
@@ -84,6 +84,7 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
       return [200, { ok: true, result: "friends", player: person(other) }];
     }
     if (db.hasRequest(user.id, other.id)) return [200, { ok: true, result: "sent", player: person(other) }];
+    if (other.friend_requests_open === 0) return [403, { error: `${person(other).name} isn't taking friend requests right now.` }];
     if (db.outgoingCount(user.id) >= MAX_OUTGOING) {
       return [409, { error: `You have ${MAX_OUTGOING} requests waiting. Cancel some first.` }];
     }
@@ -229,7 +230,10 @@ function createFriends({ db, now, sessionUser, getServer, publicUser }) {
     db.deleteMessagesBefore(t - MESSAGE_DAYS * 86_400_000);
   }
 
-  return { handle, sweep };
+  // A deleted account drops off friends lists at once, not after the presence timeout.
+  const forget = (userId) => presence.delete(userId);
+
+  return { handle, sweep, forget };
 }
 
 module.exports = { createFriends, MAX_FRIENDS, MAX_OUTGOING, OFFLINE_AFTER_MS };

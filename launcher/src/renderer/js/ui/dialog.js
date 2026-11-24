@@ -1,4 +1,5 @@
 // One modal at a time, built on the native <dialog> element (focus trap and Esc for free).
+// Esc and a click outside the box both close it with cancelValue.
 //
 // openDialog({ title, html, actions, cancelValue, onReady }) resolves with the chosen action's value.
 // An action can have validate(dialogEl) -> boolean | Promise<boolean> to keep the dialog open,
@@ -45,6 +46,18 @@ export function openDialog({ title, html = "", actions = [{ label: "OK", value: 
     dlg.addEventListener("cancel", (e) => {
       e.preventDefault();
       finish(cancelValue);
+    }, { signal });
+    // A click on the backdrop (outside the box) closes it, like Cancel. The press has to start
+    // there too, so selecting text inside and letting go outside doesn't close it.
+    let pressedOutside = false;
+    const outside = (e) => {
+      const r = dlg.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+    dlg.addEventListener("pointerdown", (e) => { pressedOutside = e.target === dlg && outside(e); }, { signal });
+    dlg.addEventListener("click", (e) => {
+      if (pressedOutside && e.target === dlg && outside(e)) finish(cancelValue);
+      pressedOutside = false;
     }, { signal });
 
     dlg.showModal();

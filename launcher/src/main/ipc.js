@@ -68,7 +68,7 @@ function registerIpc(ctx) {
     updater.applySettings(next);
     const favoritesChanged = prev.favorites.join("\n") !== next.favorites.join("\n");
     // Friends see the change right away, not at the next minute's report.
-    if (prev.shareServerWithFriends !== next.shareServerWithFriends) reportPresence();
+    if (prev.shareServerWithFriends !== next.shareServerWithFriends || prev.appearOffline !== next.appearOffline) reportPresence();
     if (favoritesChanged && next.syncFavorites && auth.isLoggedIn()) {
       auth.putFavorites(next.favorites).catch((err) => logger.warn("Favorites sync failed", { error: err.message }));
     }
@@ -163,6 +163,10 @@ function registerIpc(ctx) {
   let playingOn = "";
   async function reportPresence() {
     if (!auth.hasFriendsAccount()) return;
+    if (store.get().appearOffline) {
+      await auth.clearPresence(); // friends see you as offline straight away
+      return;
+    }
     const name = validatePlayerName(store.get().playerName);
     const shown = store.get().shareServerWithFriends ? playingOn : "";
     const r = await auth.reportPresence(name.ok ? name.name : "", shown);
@@ -188,6 +192,26 @@ function registerIpc(ctx) {
   handle("friends:dropRequest", byId((id) => auth.dropRequest(id)));
   handle("friends:remove", byId((id) => auth.removeFriend(id)));
   handle("friends:resetCode", () => auth.resetFriendCode());
+  // ---- Own profile and account (whichever account friends use) ----
+  const COLOR = /^#[0-9a-f]{6}$/;
+  const PICTURE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  handle("me:get", () => (auth.hasFriendsAccount() ? auth.me() : { ok: false, noAccount: true }));
+  handle("me:update", (patch) => {
+    const body = {};
+    if (patch && typeof patch.color === "string" && (patch.color === "" || COLOR.test(patch.color))) body.color = patch.color;
+    if (patch && typeof patch.acceptRequests === "boolean") body.acceptRequests = patch.acceptRequests;
+    return Object.keys(body).length ? auth.updateProfile(body) : { ok: false, error: "Nothing to change." };
+  });
+  handle("me:setPicture", (type, data) => (PICTURE_TYPES.includes(type) && typeof data === "string" && data.length <= 44_000
+    ? auth.setPicture(type, data)
+    : { ok: false, error: "That picture is too big. Try a smaller one." }));
+  handle("me:removePicture", () => auth.removePicture());
+  handle("me:deleteAccount", async () => {
+    const result = await auth.deleteAccount();
+    if (result.ok) playingOn = "";
+    return result;
+  });
+
   handle("friends:messages", (id, after) => (typeof id === "string" && FRIEND_ID.test(id) && (after === undefined || (typeof after === "string" && FRIEND_ID.test(after)))
     ? auth.messages(id, after)
     : { ok: false, error: "Unknown conversation." }));

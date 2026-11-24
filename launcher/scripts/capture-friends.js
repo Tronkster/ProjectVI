@@ -55,6 +55,20 @@ module.exports = {
     { name: "friends-03-list", main: seed, run: 'document.querySelector("[data-view=friends]").click()', wait: 1500 },
     { name: "friends-04-add", run: 'document.querySelector("[data-friends=add]").click(); document.getElementById("dialog-code").value = "k7qp-2m9x"', wait: 600 },
     { name: "friends-05-chat", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=chat]").click()', wait: 1200 },
-    { name: "friends-06-remove", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=remove]").click()', wait: 600 }
+    { name: "friends-06-remove", run: 'document.getElementById("dialog").close(); document.querySelector("[data-friends=remove]").click()', wait: 600 },
+    // A press and click on the backdrop, outside the box, closes a popup.
+    {
+      name: "friends-07-clicked-outside",
+      run: `(() => {
+        const dlg = document.getElementById("dialog");
+        const at = { bubbles: true, clientX: 20, clientY: 400 };
+        dlg.dispatchEvent(new PointerEvent("pointerdown", at));
+        dlg.dispatchEvent(new MouseEvent("click", at));
+      })()`,
+      wait: 600
+    },
+    { name: "friends-08-settings-profile", run: 'document.querySelector("[data-go=\\"settings:friends\\"]").click(); document.querySelector("[data-color=\\"#10b981\\"]").click(); document.getElementById("set-profile").scrollIntoView()', wait: 1200 },
+    { name: "friends-09-settings-friends", run: 'document.getElementById("set-friends").scrollIntoView()', wait: 600 },
+    { name: "friends-10-settings-account", run: 'document.getElementById("set-account").scrollIntoView()', wait: 600 }
   ]
 };

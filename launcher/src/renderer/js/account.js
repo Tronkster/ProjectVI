@@ -1,14 +1,21 @@
 // Optional Discord login: status, log in, log out. The token never reaches this page.
 
-import { $, api, esc, initials } from "./util.js";
+import { $, api, esc } from "./util.js";
+import { avatarInner, avatarStyle } from "./me.js";
 import { state, emit } from "./state.js";
 import { openProgress } from "./ui/progress.js";
 import { showToast } from "./ui/toast.js";
 
+// The player's own avatar: the friends profile when there is one, else the Discord login.
+function own() {
+  const person = state.me?.user ?? state.auth.user;
+  return { ...person, name: state.settings.playerName || person?.name || "" };
+}
 export function avatarHtml() {
-  const user = state.auth.user;
-  if (user?.avatarUrl) return `<img src="${esc(user.avatarUrl)}" alt="">`;
-  return esc(initials(state.settings.playerName || user?.name || ""));
+  return avatarInner(own());
+}
+export function ownAvatarStyle() {
+  return avatarStyle(own()).replace(/^ style="|"$/g, "");
 }
 
 export function renderAccount() {
