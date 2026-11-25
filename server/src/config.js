@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const { parse } = require("smol-toml");
 const { RESOURCE_NAME, DEFAULT_MASTER_URL } = require("@projectvi/shared");
+const { parseTime, normaliseWeather } = require("./core/world");
 
 const MODES = ["Roleplay", "Racing", "Freeroam", "Other"];
 
@@ -15,7 +16,21 @@ function validateConfig(raw) {
   const r = raw.resources ?? {};
   const sc = raw.scripting ?? {};
   const sy = raw.sync ?? {};
+  const w = raw.world ?? {};
   const errors = [];
+
+  const time = w.time ?? "12:00";
+  if (parseTime(time) === null) errors.push("[world] time must be a time of day like \"18:30\".");
+  const timeScale = w.time_scale ?? 30;
+  if (typeof timeScale !== "number" || !(timeScale >= 0 && timeScale <= 1000)) errors.push("[world] time_scale must be a number from 0 to 1000 (0 stops the clock).");
+  const weather = w.weather ?? "clear";
+  if (!normaliseWeather(weather)) errors.push("[world] weather must be a weather name like \"clear\" or \"rain\".");
+  const weatherCycle = w.weather_cycle ?? [];
+  if (!Array.isArray(weatherCycle) || weatherCycle.length > 32 || !weatherCycle.every(normaliseWeather)) {
+    errors.push("[world] weather_cycle must be a list of weather names, for example [\"clear\", \"clouds\", \"rain\"].");
+  }
+  const weatherMinutes = w.weather_minutes ?? 15;
+  if (!isInt(weatherMinutes, 1, 1440)) errors.push("[world] weather_minutes must be a whole number of minutes from 1 to 1440.");
 
   const tickRate = sy.tick_rate ?? 20;
   if (!isInt(tickRate, 1, 60)) errors.push("[sync] tick_rate must be a number between 1 and 60.");
@@ -77,6 +92,7 @@ function validateConfig(raw) {
     region: text(s.region, 8).toUpperCase(),
     master: { url: masterUrl, public: m.public !== false },
     resources: { start: [...new Set(start)] },
+    world: { time, timeScale, weather, weatherCycle: Array.isArray(weatherCycle) ? weatherCycle : [], weatherMinutes },
     sync: { enabled: sy.enabled !== false, tickRate, streamRadius, timeoutSeconds, characters: Array.isArray(characters) ? characters.map((c) => String(c).trim()) : [] },
     scripting: {
       dotnetHost: text(sc.dotnet_host, 1024),

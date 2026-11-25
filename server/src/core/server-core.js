@@ -3,6 +3,7 @@
 
 const { joaat, quatFromHeading, headingFromQuat } = require("@projectvi/shared");
 const { EventBus } = require("./events");
+const { World } = require("./world");
 
 const DEFAULT_SPAWN = { x: -1012.4, y: 233.8, z: 12.0 };
 
@@ -69,6 +70,10 @@ class ServerCore {
     this.info = { name: config.name, maxPlayers: config.maxPlayers, port: config.port };
     this.dev = config.scripting.dev;
     this.bus = new EventBus({ log });
+    this.world = new World(config.world);
+    this.world.on("change", ({ weatherChanged, weather, previous }) => {
+      if (weatherChanged) this.bus.emit("weatherChanged", [weather, previous]);
+    });
     this.players = new PlayerRegistry(config.permissions);
     this.runtimes = new Set();
     this.commands = new Map(); // name -> { runtime, resource, permission, help }
@@ -268,6 +273,12 @@ const NATIVES = {
   "player.character": (core, resource, id) => requirePlayer(core, id).character ?? 0,
   // True for the player whose game runs the story.
   "player.isHost": (core, resource, id) => requirePlayer(core, id).host === true,
+  "world.time": (core) => core.world.time(),
+  "world.setTime": (core, resource, hour, minute, second) => (core.world.setTime(hour, minute ?? 0, second ?? 0), true),
+  "world.timeScale": (core) => core.world.scale,
+  "world.setTimeScale": (core, resource, scale) => (core.world.setTimeScale(scale), true),
+  "world.weather": (core) => core.world.weather,
+  "world.setWeather": (core, resource, name, transitionSeconds) => (core.world.setWeather(name, transitionSeconds ?? 30), true),
   "store.get": (core, resource, key) => core.store.get(resource, requireKey(key)),
   "store.set": (core, resource, key, value) => core.store.set(resource, requireKey(key), value),
   "store.delete": (core, resource, key) => core.store.delete(resource, requireKey(key)),

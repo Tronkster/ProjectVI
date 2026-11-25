@@ -25,6 +25,14 @@ start = ["jobs", "welcome", "hud"]
 # timeout_seconds = 10    # a player who sends nothing for this long is dropped
 # characters = ["lucia", "jason"]  # story characters, given out in join order; later players keep their own look
 
+[world]
+# The in-game clock and weather, the same for every player. Scripts can change both.
+# time = "12:00"             # in-game time when the server starts
+# time_scale = 30            # in-game minutes per real minute (GTA V's is 30); 0 stops the clock
+# weather = "clear"
+# weather_cycle = []         # e.g. ["clear", "clouds", "rain"]: a new weather from the list every weather_minutes
+# weather_minutes = 15
+
 [scripting]
 # dotnet_host = ""        # path to ProjectVI.ScriptHost; empty uses this repository's build
 # wait_for_debugger = false

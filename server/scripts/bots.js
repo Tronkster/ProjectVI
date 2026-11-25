@@ -205,7 +205,7 @@ function draw(f) {
     ctx.fillText(p.name, x + 8, y - 6);
   }
   if (f.me) { ctx.fillStyle = "#fff"; ctx.fillRect(sx(f.me.x) - 4, sy(f.me.y) - 4, 8, 8); }
-  legend.textContent = f.observer + (f.role ? " (" + f.role + ")" : "") + " (white square) sees " + f.seen.length + " players and " + f.vehicles.length +
+  legend.textContent = (f.sky ? "In-game " + f.sky + ". " : "") + f.observer + (f.role ? " (" + f.role + ")" : "") + " (white square) sees " + f.seen.length + " players and " + f.vehicles.length +
     " vehicles, drawn " + f.delayMs + " ms in the past as the client would. Grey rings: where the bots really are. " +
     "Blue on foot, orange driving. ★ is the host. Boxes are vehicles, labelled with the player who simulates them.";
 }
@@ -219,6 +219,10 @@ function startView({ port, observer, bots, center, spread }) {
     spread,
     me: observer.state?.position ?? null,
     role: [characterName(observer.client.character), observer.client.isHost ? "host" : ""].filter(Boolean).join(", "),
+    sky: (() => {
+      const t = observer.client.gameTime();
+      return t ? `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}, ${observer.client.world.weather}` : "";
+    })(),
     seen: observer.client.view().map(({ id, name, state }) => ({
       name: [name ?? `#${id}`, characterName(state.model) && `(${characterName(state.model)})`, observer.client.hostId === id ? "★" : ""].filter(Boolean).join(" "),
       x: state.position.x,
@@ -368,10 +372,13 @@ async function main() {
     const sees = average((b) => b.client.remotes.size);
     const vehicles = average((b) => b.client.vehicles.size);
     const rtt = average((b) => b.client.rtt ?? 0);
+    const first = live[0]?.client;
+    const clock = first?.gameTime();
+    const sky = clock ? ` · ${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")} ${first.world.weather}` : "";
     console.log(
       `${new Date().toLocaleTimeString()}  ${live.length}/${bots.length} in · each sees ${sees.toFixed(1)} others and ` +
         `${vehicles.toFixed(1)} vehicles · ${perBot.toFixed(1)} snapshots/s each · ${missed - previous.missed} ticks missed · ` +
-        `round trip ${rtt.toFixed(1)} ms` +
+        `round trip ${rtt.toFixed(1)} ms${sky}` +
         (options.chat ? ` · chat: ${chatSent} sent, ${average((b) => b.chatReceived).toFixed(1)} received each` : "")
     );
     previous = { snapshots, missed, at: now };

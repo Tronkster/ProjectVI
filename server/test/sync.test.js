@@ -464,13 +464,17 @@ test("chat reaches every player and scripts; /commands run and answer with a not
     a.sendChat("  hello  ");
     a.sendChat("/ping x");
     a.sendChat("/nope");
-    for (const line of ["l1", "l2", "l3", "l4"]) a.sendChat(line); // only 5 lines a second get through
+    // A burst of 10 gets through (the server's clock doesn't move here, so the bucket doesn't refill); the rest is
+    // dropped, with one notice.
+    for (let i = 1; i <= 9; i++) a.sendChat(`l${i}`);
     await tickAndSettle(s);
     await tickAndSettle(s);
 
-    assert.deepEqual(chatB, [[a.playerId, "hello"], [a.playerId, "l1"], [a.playerId, "l2"]]);
-    assert.deepEqual(heard, [[a.playerId, "hello"], [a.playerId, "l1"], [a.playerId, "l2"]]);
-    assert.deepEqual(noticesA, [`pong x from #${a.playerId}`, "Unknown command: /nope"]);
+    const expected = ["hello", "l1", "l2", "l3", "l4", "l5", "l6", "l7"].map((text) => [a.playerId, text]);
+    assert.deepEqual(chatB, expected);
+    assert.deepEqual(heard, expected);
+    // Command replies are asynchronous, so they can come before or after the warning.
+    assert.deepEqual([...noticesA].sort(), ["Unknown command: /nope", `pong x from #${a.playerId}`, "You're sending messages too fast; some weren't sent."].sort());
   } finally {
     await Promise.all([a.close(), b.close()]);
     await s.close();

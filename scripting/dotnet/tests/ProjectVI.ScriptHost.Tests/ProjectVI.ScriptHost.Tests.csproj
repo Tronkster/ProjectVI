@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProjectVI.ScriptHost\ProjectVI.ScriptHost.csproj" />
+    <ProjectReference Include="..\..\src\ProjectVI.Testing\ProjectVI.Testing.csproj" />
     <!-- Built so the tests can load them as resources and run them in the sandbox; not referenced in code. -->
     <ProjectReference Include="..\ProjectVI.TestResources\ProjectVI.TestResources.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ProjectVI.TestResources.Broken\ProjectVI.TestResources.Broken.csproj" ReferenceOutputAssembly="false" />

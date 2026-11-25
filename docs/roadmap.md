@@ -77,7 +77,7 @@ Natives or engine functions for each of these:
 - [x] Vehicles: ids, rotation, who simulates each one, hand-over
 - [x] Host and story characters
 - [x] Reliable channel: chat, `/commands`, notices, script events
-- [ ] Server time of day and weather, pushed to every player
+- [x] Server time of day and weather, pushed to every player
 - [ ] "Stays with the host" control for mission characters, cars and objects
 - [ ] Join tickets: the master server signs a ticket, the launcher passes it to the game, and the server checks it in
   `HELLO`, so real players get their Discord identifiers and admin permissions work

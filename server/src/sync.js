@@ -34,6 +34,7 @@ const {
   encodeChat,
   encodeChannelNotice,
   encodeEvent,
+  encodeWorld,
   decodeChannelMessage,
   decodeSync,
   SYNC_CHANNEL,
@@ -52,9 +53,15 @@ const MAX_STATES_PER_SECOND = 90; // clients send at the tick rate; this leaves 
 const MAX_VEHICLE_STATES_PER_SECOND = 1000;
 const HELLOS_PER_SECOND_PER_IP = 5;
 const MIN_PING_INTERVAL_MS = 200;
-const MAX_CHAT_PER_SECOND = 5;
+// Chat and events are limited by token buckets: a steady rate, plus room for a burst. Reliable messages held up
+// by a lost packet arrive together once it's resent, so a plain per-second count would drop lines from a client
+// that never went over the limit.
+const CHAT_PER_SECOND = 5;
+const CHAT_BURST = 10;
+const CHAT_WARNING_MS = 5000; // at most one "too fast" notice this often
 const MAX_CHAT_LENGTH = 500;
-const MAX_EVENTS_PER_SECOND = 50; // script events from one client; they end up in the script runtimes
+const EVENTS_PER_SECOND = 50; // script events from one client; they end up in the script runtimes
+const EVENTS_BURST = 100;
 const MAX_EVENT_BYTES = 16 * 1024; // either way. An event for every player is copied into every queue
 const EVENT_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
 
@@ -146,6 +153,12 @@ class SyncServer {
     // Script events for players (emitted with a client target) come here.
     this.sendToClients = (target, name, args) => this.sendEvent(target, name, args);
     core.bus.sendToClients = this.sendToClients;
+    // The clock and weather go to everyone when they change, and to each player as they join.
+    this.onWorldChange = ({ transition }) => {
+      const payload = this.worldMessage(transition);
+      for (const s of [...this.sessions.values()]) this.queue(s, payload);
+    };
+    core.world.on("change", this.onWorldChange);
   }
 
   serverTime() {
@@ -171,6 +184,7 @@ class SyncServer {
   close() {
     clearInterval(this.timer);
     if (this.core.bus.sendToClients === this.sendToClients) this.core.bus.sendToClients = null;
+    this.core.world.off("change", this.onWorldChange);
     for (const s of [...this.sessions.values()]) this.drop(s, "Server shutting down", { kick: true });
     return new Promise((resolve) => (this.socket ? this.socket.close(resolve) : resolve()));
   }
@@ -243,8 +257,9 @@ class SyncServer {
       driving: 0,
       lastPing: -Infinity,
       reliable: new ReliableChannel({ now: this.now }),
-      chatBudget: { second, count: 0 },
-      eventBudget: { second, count: 0 },
+      chatBudget: { tokens: CHAT_BURST, at: this.now(), rate: CHAT_PER_SECOND, burst: CHAT_BURST },
+      eventBudget: { tokens: EVENTS_BURST, at: this.now(), rate: EVENTS_PER_SECOND, burst: EVENTS_BURST },
+      chatWarnedAt: -Infinity,
       playerId: 0
     };
     const connection = {
@@ -260,6 +275,7 @@ class SyncServer {
     this.byPlayer.set(player.id, session);
     this.assignRoles();
     this.rosterVersion = (this.rosterVersion + 1) & 0xffff;
+    this.queue(record, this.worldMessage(0));
     this.send(encodeWelcome({ nonce, session, playerId: player.id, tickRate: this.tickRate, serverTime: this.serverTime() }), address, port);
   }
 
@@ -385,13 +401,14 @@ class SyncServer {
     }
   }
 
-  withinBudget(budget, max) {
-    const second = Math.floor(this.now() / 1000);
-    if (budget.second !== second) {
-      budget.second = second;
-      budget.count = 0;
-    }
-    return ++budget.count <= max;
+  // Takes a token from a bucket that refills at budget.rate a second, up to budget.burst.
+  takeToken(budget) {
+    const now = this.now();
+    budget.tokens = Math.min(budget.burst, budget.tokens + ((now - budget.at) / 1000) * budget.rate);
+    budget.at = now;
+    if (budget.tokens < 1) return false;
+    budget.tokens -= 1;
+    return true;
   }
 
   // A line starting with / runs a command (permissions are checked there) and the reply comes back as a notice.
@@ -399,7 +416,14 @@ class SyncServer {
   onChat(s, text) {
     const line = text.trim();
     const player = this.core.players.get(s.playerId);
-    if (!player || !line || line.length > MAX_CHAT_LENGTH || !this.withinBudget(s.chatBudget, MAX_CHAT_PER_SECOND)) return;
+    if (!player || !line || line.length > MAX_CHAT_LENGTH) return;
+    if (!this.takeToken(s.chatBudget)) {
+      if (this.now() - s.chatWarnedAt >= CHAT_WARNING_MS) {
+        s.chatWarnedAt = this.now();
+        this.core.notify(player, "You're sending messages too fast; some weren't sent.");
+      }
+      return;
+    }
     if (line.startsWith("/")) {
       this.core.runCommand(player.id, line).then(
         (reply) => reply && this.core.notify(player, reply),
@@ -415,7 +439,7 @@ class SyncServer {
 
   onClientEvent(s, { name, args }, size) {
     if (!EVENT_NAME.test(name) || size > MAX_EVENT_BYTES || hasPlayerReference(args)) return;
-    if (!this.withinBudget(s.eventBudget, MAX_EVENTS_PER_SECOND)) return;
+    if (!this.takeToken(s.eventBudget)) return;
     if (!this.core.bus.emitFromClient(s.playerId, name, args)) this.log.debug?.(`Nothing on the server accepts the net event ${name}.`);
   }
 
@@ -436,6 +460,12 @@ class SyncServer {
       const s = this.sessionOf(Number(target.slice("client:".length)));
       if (s) this.queue(s, payload);
     }
+  }
+
+  // The clock as of now, in server time, so a client can keep it running between messages.
+  worldMessage(transition) {
+    const world = this.core.world;
+    return encodeWorld({ serverTime: this.serverTime(), clock: world.clockSeconds(), scale: world.scale, weather: world.weather, transition });
   }
 
   // Queues a reliable message; it goes out on the next tick. A client that stops acknowledging is dropped

@@ -34,6 +34,11 @@ internal sealed class TestRuntime : IScriptRuntime
     public Dictionary<int, Vector3> Positions { get; } = [];
     public Dictionary<string, Dictionary<string, JsonElement>> Store { get; } = [];
     public List<Entity> Entities { get; } = [];
+
+    /// <summary>The simulated clock and weather. The clock doesn't run on its own here.</summary>
+    public GameTime WorldTime { get; set; } = new(12, 0, 0);
+    public float WorldTimeScale { get; set; } = 30;
+    public string Weather { get; set; } = "clear";
     public Action<int, string>? OnKick { get; set; }
 
     public string Side => "server";
@@ -158,6 +163,12 @@ internal sealed class TestRuntime : IScriptRuntime
             "entities.spawnVehicle" => Spawn(a[0].GetString()!, a[1].Deserialize<Vector3>(Json), a[2].GetSingle()),
             "entities.list" => Entities.ToArray(),
             "entities.delete" => Entities.RemoveAll(e => e.Id == a[0].GetInt32()),
+            "world.time" => WorldTime,
+            "world.setTime" => SetWorldTime(a[0].GetInt32(), a[1].GetInt32(), a[2].GetInt32()),
+            "world.timeScale" => WorldTimeScale,
+            "world.setTimeScale" => SetWorldTimeScale(a[0].GetSingle()),
+            "world.weather" => Weather,
+            "world.setWeather" => SetWeather(a[0].GetString() ?? "", a[1].GetSingle()),
             _ => throw new NotSupportedException($"ProjectVI.Testing doesn't simulate the native '{name}'.")
         };
         return Task.FromResult(JsonSerializer.SerializeToElement(result, Json));
@@ -193,6 +204,38 @@ internal sealed class TestRuntime : IScriptRuntime
     private bool Kick(int playerId, string reason)
     {
         OnKick?.Invoke(playerId, reason);
+        return true;
+    }
+
+    // Same checks and messages as the server core (server/src/core/world.js).
+    private bool SetWorldTime(int hour, int minute, int second)
+    {
+        if (hour is < 0 or > 23 || minute is < 0 or > 59 || second is < 0 or > 59)
+        {
+            throw new InvalidOperationException("The time must be an hour from 0 to 23, and minutes and seconds from 0 to 59.");
+        }
+        WorldTime = new GameTime(hour, minute, second);
+        return true;
+    }
+
+    private bool SetWorldTimeScale(float scale)
+    {
+        if (!float.IsFinite(scale) || scale is < 0 or > 1000) throw new InvalidOperationException("The time scale must be a number from 0 to 1000.");
+        WorldTimeScale = scale;
+        return true;
+    }
+
+    private bool SetWeather(string name, float transitionSeconds)
+    {
+        string weather = name.Trim().ToLowerInvariant();
+        if (weather.Length is 0 or > 32 || !weather.All(c => char.IsAsciiLetterOrDigit(c) || c == '_'))
+        {
+            throw new InvalidOperationException("Weather names are 1-32 letters, digits and underscores, for example \"rain\".");
+        }
+        if (!float.IsFinite(transitionSeconds) || transitionSeconds is < 0 or > 600) throw new InvalidOperationException("The transition must be 0 to 600 seconds.");
+        string previous = Weather;
+        Weather = weather;
+        if (weather != previous) Dispatch(ServerEvents.WeatherChanged, ToJson([weather, previous]), network: false, source: null);
         return true;
     }
 

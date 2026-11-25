@@ -42,6 +42,7 @@ async function main() {
 
   const store = new ResourceStore(path.join(baseDir, ".projectvi", "store.db"));
   const core = new ServerCore({ config, log, store });
+  core.world.start();
   const server = createGameServer({ config, content, getPlayers: () => core.players.list().length });
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") log.error(`Port ${config.port} is already in use. Change [server] port in server.toml.`);
@@ -78,6 +79,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     log.info("Shutting down…");
+    core.world.stop();
     await sync?.close();
     await resources.stopAll();
     await dotnet?.stop();
