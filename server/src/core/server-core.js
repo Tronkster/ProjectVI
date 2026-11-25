@@ -210,6 +210,8 @@ const NATIVES = {
   },
   "player.kick": (core, resource, id, reason) => core.removePlayer(requirePlayer(core, id).id, `Kicked: ${String(reason).slice(0, 200)}`),
   "player.position": (core, resource, id) => requirePlayer(core, id).position,
+  // The last state the player's client reported over sync, or null (fake players, or nothing sent yet).
+  "player.state": (core, resource, id) => requirePlayer(core, id).sync ?? null,
   "store.get": (core, resource, key) => core.store.get(resource, requireKey(key)),
   "store.set": (core, resource, key, value) => core.store.set(resource, requireKey(key), value),
   "store.delete": (core, resource, key) => core.store.delete(resource, requireKey(key)),

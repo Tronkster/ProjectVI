@@ -4,7 +4,8 @@
 //
 // Serves resources to players' launchers, lists the server on the master server and runs
 // resource scripts (C# through the ProjectVI script host). Type `help` in this window for commands.
-// Game sync arrives with the ProjectVI client; until then, use fake players to test scripts.
+// Player sync runs over UDP on the game port (src/sync.js). Until the ProjectVI client exists,
+// use fake players to test scripts.
 
 const path = require("node:path");
 const { loadConfig } = require("./src/config");
@@ -17,6 +18,7 @@ const { ResourceStore } = require("./src/core/store");
 const { ResourceManager } = require("./src/core/resources");
 const { startConsole } = require("./src/core/console");
 const { DotnetRuntime, findDotnetHost } = require("./src/runtimes/dotnet");
+const { SyncServer } = require("./src/sync");
 
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -48,6 +50,18 @@ async function main() {
   });
   server.listen(config.port, config.bind, () => log.info(`"${config.name}" is running on port ${config.port}.`));
 
+  let sync = null;
+  if (config.sync.enabled) {
+    sync = new SyncServer({ core, log, maxPlayers: config.maxPlayers, ...config.sync });
+    try {
+      await sync.listen(config.port, config.bind);
+      log.info(`Player sync on UDP port ${config.port}, ${config.sync.tickRate} updates a second.`);
+    } catch (err) {
+      log.error(err.code === "EADDRINUSE" ? `UDP port ${config.port} is already in use.` : `Player sync couldn't start: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
   // Scripting: the C# runtime starts only if a resource needs it.
   const dotnetHost = findDotnetHost(config.scripting.dotnetHost);
   const dotnet = dotnetHost ? new DotnetRuntime({ host: dotnetHost, core, log, waitForDebugger: config.scripting.waitForDebugger }) : null;
@@ -64,6 +78,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     log.info("Shutting down…");
+    await sync?.close();
     await resources.stopAll();
     await dotnet?.stop();
     await stopHeartbeat?.();

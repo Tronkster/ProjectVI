@@ -14,7 +14,15 @@ function validateConfig(raw) {
   const m = raw.master ?? {};
   const r = raw.resources ?? {};
   const sc = raw.scripting ?? {};
+  const sy = raw.sync ?? {};
   const errors = [];
+
+  const tickRate = sy.tick_rate ?? 20;
+  if (!isInt(tickRate, 1, 60)) errors.push("[sync] tick_rate must be a number between 1 and 60.");
+  const streamRadius = sy.stream_radius ?? 500;
+  if (!isInt(streamRadius, 50, 10000)) errors.push("[sync] stream_radius must be a number of metres between 50 and 10000.");
+  const timeoutSeconds = sy.timeout_seconds ?? 10;
+  if (!isInt(timeoutSeconds, 3, 120)) errors.push("[sync] timeout_seconds must be a number between 3 and 120.");
 
   const name = text(s.name, 64);
   if (!name) errors.push("[server] name is required (1-64 characters).");
@@ -63,6 +71,7 @@ function validateConfig(raw) {
     region: text(s.region, 8).toUpperCase(),
     master: { url: masterUrl, public: m.public !== false },
     resources: { start: [...new Set(start)] },
+    sync: { enabled: sy.enabled !== false, tickRate, streamRadius, timeoutSeconds },
     scripting: {
       dotnetHost: text(sc.dotnet_host, 1024),
       watch: sc.watch !== false,

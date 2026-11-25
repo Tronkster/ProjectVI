@@ -17,6 +17,13 @@ public = true           # false keeps the server off the public list
 # Folders in resources/ to start, in order.
 start = ["jobs", "welcome", "hud"]
 
+[sync]
+# Player positions travel over UDP on the same port number as [server] port. Open it for UDP too.
+# enabled = true
+# tick_rate = 20          # updates a second, each way
+# stream_radius = 500     # metres: players farther apart than this don't see each other
+# timeout_seconds = 10    # a player who sends nothing for this long is dropped
+
 [scripting]
 # dotnet_host = ""        # path to ProjectVI.ScriptHost; empty uses this repository's build
 # wait_for_debugger = false

@@ -10,7 +10,7 @@
 ## What you need
 
 - Node 22.13 or newer
-- One open TCP port (default `30120`) if players outside your network should join
+- One open port (default `30120`), TCP and UDP, if players outside your network should join. TCP carries downloads; UDP carries player positions
 
 ## Start
 
@@ -72,7 +72,7 @@ File hashes are cached in `.projectvi/hash-cache.json`, so restarts stay fast wi
 
 ## Opening your server to the internet
 
-1. Forward TCP port `30120`, or whatever you set, on your router to the server's PC.
+1. Forward port `30120`, or whatever you set, for both TCP and UDP on your router to the server's PC.
 2. Allow it in the firewall.
 3. Point `[master] url` at a public master server.
 
