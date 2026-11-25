@@ -6,7 +6,7 @@
 // Numbers are little-endian. Floats are 32-bit. Nothing here is trusted: decoders return null for
 // anything malformed, and the server still checks values (positions, speeds, sequence numbers).
 
-const SYNC_VERSION = 2;
+const SYNC_VERSION = 3;
 const MAGIC_0 = 0x50; // "P"
 const MAGIC_1 = 0x56; // "V"
 const HEADER = 4;
@@ -24,12 +24,13 @@ const MSG = Object.freeze({
   ROSTER: 7, // server -> client: who's who (id, name, character, host), one page
   BYE: 8, // client -> server: leaving
   KICK: 9, // server -> client: you were removed, with a reason
-  NOTICE: 10, // server -> client: a message to show the player
+  // 10 was NOTICE: notices are reliable messages now
   VEHICLE_STATE: 11, // client -> server: a vehicle this client controls, every tick
   VEHICLES: 12, // server -> client: vehicles near the player
   VEHICLE_ASSIGN: 13, // server -> client: the vehicle id for a vehicle the client registered
   PING: 14, // client -> server: once a second, with the client's last round trip time
-  PONG: 15 // server -> client: the answer to PING
+  PONG: 15, // server -> client: the answer to PING
+  RELIABLE: 16 // both ways: acknowledgements and reliable messages (reliable.js)
 });
 
 // Player state flags
@@ -71,6 +72,17 @@ const VEHICLES_HEADER_BYTES = HEADER + 4 + 4 + 1; // tick, server time, count
 const VEHICLES_ENTRY_BYTES = 2 + 2 + VEHICLE_FIELDS_BYTES; // vehicle id, controlling player id, state
 const VEHICLES_MAX_ENTRIES = Math.floor((MAX_PACKET - VEHICLES_HEADER_BYTES) / VEHICLES_ENTRY_BYTES);
 const VEHICLE_STATE_BYTES = HEADER + 4 + 2 + 2 + 2 + VEHICLE_FIELDS_BYTES; // session, sequence, vehicle id, local id
+const RELIABLE_HEADER_BYTES = HEADER + 4 + 2 + 4 + 1; // session, ack, ack bits, count
+const RELIABLE_MESSAGE_OVERHEAD = 2 + 1 + 2; // sequence, flags, length
+const RELIABLE_PACKET_BUDGET = MAX_PACKET - RELIABLE_HEADER_BYTES; // room for messages in one packet
+const RELIABLE_MORE = 1; // message flag: more fragments of the same message follow
+
+// What a reliable message carries: the first byte says which kind.
+const CHANNEL = Object.freeze({
+  CHAT: 1, // client -> server: a chat line or /command. server -> client: a chat line from a player
+  EVENT: 2, // both ways: a script event, name and JSON arguments
+  NOTICE: 3 // server -> client: a message to show the player
+});
 
 function header(type, size) {
   const buf = Buffer.alloc(size);
@@ -335,7 +347,90 @@ function encodeTextMessage(type, text) {
 }
 
 const encodeKick = ({ reason }) => encodeTextMessage(MSG.KICK, reason);
-const encodeNotice = ({ text }) => encodeTextMessage(MSG.NOTICE, text);
+
+// messages: [{ seq, more, payload }], as ReliableChannel.poll() returns them. The server sends the
+// client's own session, so both directions share one format.
+function encodeReliable({ session, ack, ackBits, messages }) {
+  const size = RELIABLE_HEADER_BYTES + messages.reduce((n, m) => n + RELIABLE_MESSAGE_OVERHEAD + m.payload.length, 0);
+  if (size > MAX_PACKET || messages.length > 255) throw new Error("Too many reliable messages for one packet.");
+  const buf = header(MSG.RELIABLE, size);
+  buf.writeUInt32LE(session >>> 0, HEADER);
+  buf.writeUInt16LE(ack & 0xffff, HEADER + 4);
+  buf.writeUInt32LE(ackBits >>> 0, HEADER + 6);
+  buf.writeUInt8(messages.length, HEADER + 10);
+  let offset = RELIABLE_HEADER_BYTES;
+  for (const m of messages) {
+    buf.writeUInt16LE(m.seq & 0xffff, offset);
+    buf.writeUInt8(m.more ? RELIABLE_MORE : 0, offset + 2);
+    buf.writeUInt16LE(m.payload.length, offset + 3);
+    m.payload.copy(buf, offset + 5);
+    offset += RELIABLE_MESSAGE_OVERHEAD + m.payload.length;
+  }
+  return buf;
+}
+
+// ---- Reliable message payloads ----
+
+function channelText(kind, prefixBytes, text, max) {
+  const value = Buffer.from(String(text).slice(0, max), "utf8");
+  const buf = Buffer.alloc(1 + prefixBytes + 2 + value.length);
+  buf.writeUInt8(kind, 0);
+  buf.writeUInt16LE(value.length, 1 + prefixBytes);
+  value.copy(buf, 3 + prefixBytes);
+  return buf;
+}
+
+// playerId: who said it (server -> client); 0 from a client.
+function encodeChat({ playerId = 0, text }) {
+  const buf = channelText(CHANNEL.CHAT, 2, text, 500);
+  buf.writeUInt16LE(playerId, 1);
+  return buf;
+}
+
+const encodeChannelNotice = ({ text }) => channelText(CHANNEL.NOTICE, 0, text, 500);
+
+// args: an array, sent as JSON.
+function encodeEvent({ name, args = [] }) {
+  const nameBytes = Buffer.from(String(name), "utf8");
+  if (nameBytes.length > 255) throw new Error("Event names can be at most 255 bytes.");
+  const json = Buffer.from(JSON.stringify(args), "utf8");
+  const buf = Buffer.alloc(1 + 1 + nameBytes.length + json.length);
+  buf.writeUInt8(CHANNEL.EVENT, 0);
+  buf.writeUInt8(nameBytes.length, 1);
+  nameBytes.copy(buf, 2);
+  json.copy(buf, 2 + nameBytes.length);
+  return buf;
+}
+
+// Returns { kind, ...fields } or null for anything malformed, including event arguments that aren't a JSON array.
+function decodeChannelMessage(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 1) return null;
+  const kind = buf[0];
+  if (kind === CHANNEL.CHAT) {
+    if (buf.length < 5) return null;
+    const text = readText(buf, 3, 2);
+    if (!text || text.next !== buf.length) return null;
+    return { kind, playerId: buf.readUInt16LE(1), text: text.text };
+  }
+  if (kind === CHANNEL.NOTICE) {
+    const text = readText(buf, 1, 2);
+    if (!text || text.next !== buf.length) return null;
+    return { kind, text: text.text };
+  }
+  if (kind === CHANNEL.EVENT) {
+    const name = readText(buf, 1, 1);
+    if (!name || !name.text) return null;
+    let args;
+    try {
+      args = JSON.parse(buf.toString("utf8", name.next));
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(args)) return null;
+    return { kind, name: name.text, args };
+  }
+  return null;
+}
 
 // ---- Decoder ----
 
@@ -449,11 +544,26 @@ function decode(buf) {
         players
       };
     }
-    case MSG.KICK:
-    case MSG.NOTICE: {
+    case MSG.RELIABLE: {
+      if (buf.length < RELIABLE_HEADER_BYTES) return null;
+      const count = buf.readUInt8(HEADER + 10);
+      const messages = [];
+      let offset = RELIABLE_HEADER_BYTES;
+      for (let i = 0; i < count; i++) {
+        if (offset + RELIABLE_MESSAGE_OVERHEAD > buf.length) return null;
+        const length = buf.readUInt16LE(offset + 3);
+        const end = offset + RELIABLE_MESSAGE_OVERHEAD + length;
+        if (end > buf.length) return null;
+        messages.push({ seq: buf.readUInt16LE(offset), more: (buf.readUInt8(offset + 2) & RELIABLE_MORE) !== 0, payload: Buffer.from(buf.subarray(offset + 5, end)) });
+        offset = end;
+      }
+      if (offset !== buf.length) return null;
+      return { type, session: buf.readUInt32LE(HEADER), ack: buf.readUInt16LE(HEADER + 4), ackBits: buf.readUInt32LE(HEADER + 6), messages };
+    }
+    case MSG.KICK: {
       const text = readText(buf, HEADER, 2);
       if (!text || text.next !== buf.length) return null;
-      return type === MSG.KICK ? { type, reason: text.text } : { type, text: text.text };
+      return { type, reason: text.text };
     }
     default:
       return null;
@@ -551,6 +661,9 @@ module.exports = {
   SYNC_MSG: MSG,
   SYNC_FLAG: FLAG,
   SYNC_PLAYER_FLAG: PLAYER_FLAG,
+  SYNC_CHANNEL: CHANNEL,
+  RELIABLE_PACKET_BUDGET,
+  RELIABLE_MESSAGE_OVERHEAD,
   SYNC_VEHICLE_FLAG: VEHICLE_FLAG,
   SNAPSHOT_MAX_ENTRIES,
   VEHICLES_MAX_ENTRIES,
@@ -568,7 +681,11 @@ module.exports = {
   encodeRoster,
   encodeBye,
   encodeKick,
-  encodeNotice,
+  encodeReliable,
+  encodeChat,
+  encodeChannelNotice,
+  encodeEvent,
+  decodeChannelMessage,
   decodeSync: decode,
   seqNewer,
   lerpAngle,

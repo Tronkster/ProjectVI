@@ -429,3 +429,96 @@ test("the first player is host and story characters go out in join order; leavin
     await s.close();
   }
 });
+
+// ---- Reliable messages ----
+
+const { SyncClient } = require("@projectvi/shared/sync-client");
+
+async function syncClient(port, name) {
+  const c = new SyncClient({ host: "127.0.0.1", port, name });
+  await c.connect();
+  return c;
+}
+
+// The server sends queued reliable messages on its tick.
+async function tickAndSettle(s) {
+  await settle();
+  s.sync.step();
+  await settle();
+}
+
+test("chat reaches every player and scripts; /commands run and answer with a notice; chat is rate-limited", async () => {
+  const s = await startServer();
+  const a = await syncClient(s.port, "Ana");
+  const b = await syncClient(s.port, "Ben");
+  try {
+    const heard = [];
+    s.core.bus.on("playerChat", (player, text) => heard.push([player.$player, text]));
+    const runtime = { invokeCommand: async (name, source, args) => ({ error: `pong ${args.join(" ")} from #${source}` }) };
+    s.core.registerCommand(runtime, { resource: "test", name: "ping" });
+    const chatB = [];
+    const noticesA = [];
+    b.on("chat", (id, text) => chatB.push([id, text]));
+    a.on("notice", (text) => noticesA.push(text));
+
+    a.sendChat("  hello  ");
+    a.sendChat("/ping x");
+    a.sendChat("/nope");
+    for (const line of ["l1", "l2", "l3", "l4"]) a.sendChat(line); // only 5 lines a second get through
+    await tickAndSettle(s);
+    await tickAndSettle(s);
+
+    assert.deepEqual(chatB, [[a.playerId, "hello"], [a.playerId, "l1"], [a.playerId, "l2"]]);
+    assert.deepEqual(heard, [[a.playerId, "hello"], [a.playerId, "l1"], [a.playerId, "l2"]]);
+    assert.deepEqual(noticesA, [`pong x from #${a.playerId}`, "Unknown command: /nope"]);
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+    await s.close();
+  }
+});
+
+test("client events reach [NetEvent] handlers with the player as source; script events reach the clients they're for", async () => {
+  const s = await startServer();
+  const a = await syncClient(s.port, "Ana");
+  const b = await syncClient(s.port, "Ben");
+  try {
+    const got = [];
+    const runtime = { dispatch: (name, args, options) => got.push([name, args, options.source]) };
+    s.core.bus.subscribe(runtime, "jobs:clockIn", true);
+    a.sendEvent("jobs:clockIn", [1, "x"]);
+    a.sendEvent("bad name!", []);
+    a.sendEvent("jobs:clockIn", [{ $player: b.playerId }]); // can't name another player
+    await tickAndSettle(s);
+    assert.deepEqual(got, [["jobs:clockIn", [1, "x"], a.playerId]]);
+
+    const eventsA = [];
+    const eventsB = [];
+    a.on("event", (name, args) => eventsA.push([name, args]));
+    b.on("event", (name, args) => eventsB.push([name, args]));
+    s.core.bus.emit("hud:cash", [{ cash: 5 }], { target: `client:${b.playerId}` });
+    s.core.bus.emit("hud:time", ["12:00"], { target: "clients" });
+    s.core.bus.emit("hud:big", ["x".repeat(20_000)], { target: "clients" }); // too big: not sent
+    await tickAndSettle(s);
+    assert.deepEqual(eventsA, [["hud:time", ["12:00"]]]);
+    assert.deepEqual(eventsB, [["hud:cash", [{ cash: 5 }]], ["hud:time", ["12:00"]]]);
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+    await s.close();
+  }
+});
+
+test("a client that never acknowledges is dropped once too much is waiting for it", async () => {
+  const s = await startServer();
+  const silent = await client(s.port); // a bare socket: it never acknowledges anything
+  try {
+    const w = await silent.join("Ana");
+    const player = s.core.players.get(w.playerId);
+    for (let i = 0; i < 600 && s.core.players.get(w.playerId); i++) s.core.notify(player, "x".repeat(500));
+    const kick = await silent.next(silent.of(shared.SYNC_MSG.KICK));
+    assert.match(kick.reason, /unacknowledged/);
+    assert.equal(s.core.players.get(w.playerId), undefined);
+  } finally {
+    await silent.close();
+    await s.close();
+  }
+});

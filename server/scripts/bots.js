@@ -10,6 +10,8 @@
 //   --center x,y,z       where they roam (default the server's spawn point)
 //   --name prefix        names are the prefix and a number (default Bot)
 //   --view port          a live map of what the first bot sees, on http://127.0.0.1:<port>
+//   --chat seconds       a random bot says something this often; the status line counts what arrived
+//   --loss percent       drop this share of every bot's packets both ways, to test over a bad network
 
 const http = require("node:http");
 const { parseArgs } = require("node:util");
@@ -267,7 +269,9 @@ function readOptions() {
         spread: { type: "string", default: "150" },
         center: { type: "string" },
         name: { type: "string", default: "Bot" },
-        view: { type: "string" }
+        view: { type: "string" },
+        chat: { type: "string", default: "0" },
+        loss: { type: "string", default: "0" }
       }
     }));
   } catch (err) {
@@ -288,9 +292,13 @@ function readOptions() {
   }
   const longest = validatePlayerName(`${values.name}${count}`);
   if (!longest.ok) fail(`--name doesn't make valid player names: ${longest.error}`);
+  const chat = Number(values.chat);
+  if (!(chat >= 0 && chat <= 3600)) fail("--chat must be a number of seconds (0 turns it off).");
+  const loss = Number(values.loss);
+  if (!(loss >= 0 && loss <= 90)) fail("--loss must be a percentage from 0 to 90.");
   const view = values.view === undefined ? null : Number(values.view);
   if (view !== null && !(Number.isInteger(view) && view > 0 && view < 65536)) fail("--view must be a port number.");
-  return { host: match[1], port: Number(match[2]), count, mode: values.mode, spread, center, prefix: values.name, view };
+  return { host: match[1], port: Number(match[2]), count, mode: values.mode, spread, center, prefix: values.name, view, chat, loss };
 }
 
 async function main() {
@@ -316,8 +324,12 @@ async function main() {
       host: options.host,
       port: info.sync.port,
       name: `${options.prefix}${i + 1}`,
-      mover: createMover({ mode, center: options.center, spread: options.spread })
+      mover: createMover({ mode, center: options.center, spread: options.spread }),
+      clientOptions: { lossRate: options.loss / 100 }
     });
+    bot.chatReceived = 0;
+    bot.client.on("chat", () => bot.chatReceived++);
+    bot.client.on("notice", (text) => console.log(`${bot.name} was told: ${text}`));
     bot.client.on("close", ({ reason }) => {
       // A bot that never joined is reported by start() instead.
       if (!stopping && bot.client.playerId !== null) console.log(`${bot.name} left: ${reason}`);
@@ -335,6 +347,16 @@ async function main() {
 
   if (options.view) startView({ port: options.view, observer: bots[0], bots, center: options.center, spread: options.spread });
 
+  // Chat: each line should reach every bot that was in at the time, however many packets are lost.
+  let chatSent = 0;
+  if (options.chat) {
+    setInterval(() => {
+      const live = bots.filter((b) => b.client.connected);
+      const speaker = live[Math.floor(Math.random() * live.length)];
+      if (speaker?.client.sendChat(`hello from ${speaker.name} (#${chatSent + 1})`)) chatSent++;
+    }, options.chat * 1000);
+  }
+
   let previous = { snapshots: 0, missed: 0, at: performance.now() };
   setInterval(() => {
     const live = bots.filter((b) => b.client.connected);
@@ -349,7 +371,8 @@ async function main() {
     console.log(
       `${new Date().toLocaleTimeString()}  ${live.length}/${bots.length} in · each sees ${sees.toFixed(1)} others and ` +
         `${vehicles.toFixed(1)} vehicles · ${perBot.toFixed(1)} snapshots/s each · ${missed - previous.missed} ticks missed · ` +
-        `round trip ${rtt.toFixed(1)} ms`
+        `round trip ${rtt.toFixed(1)} ms` +
+        (options.chat ? ` · chat: ${chatSent} sent, ${average((b) => b.chatReceived).toFixed(1)} received each` : "")
     );
     previous = { snapshots, missed, at: now };
   }, 5000);

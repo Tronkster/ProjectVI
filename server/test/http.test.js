@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { createGameServer } = require("../src/http");
 const { validateConfig } = require("../src/config");
+const { SYNC_VERSION } = require("@projectvi/shared");
 
 const SHA = "b".repeat(64);
 
@@ -31,7 +32,7 @@ test("info, manifest and files are served", async () => {
     const info = await (await fetch(`${s.base}/info`)).json();
     assert.deepEqual(info, {
       name: "Test", protocol: 1, contentBytes: 5, fileCount: 1, players: 0, maxPlayers: 8,
-      sync: { version: 2, port: 30120, tickRate: 20 }
+      sync: { version: SYNC_VERSION, port: 30120, tickRate: 20 }
     });
 
     const manifest = await (await fetch(`${s.base}/manifest`)).json();

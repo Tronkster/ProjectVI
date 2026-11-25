@@ -5,5 +5,6 @@ module.exports = {
   ...require("./manifest"),
   ...require("./registry"),
   ...require("./sync"),
-  ...require("./hash")
+  ...require("./hash"),
+  ...require("./reliable")
 };

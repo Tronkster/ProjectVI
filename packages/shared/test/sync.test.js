@@ -40,7 +40,6 @@ test("every message survives an encode and decode", () => {
   assert.deepEqual(s.decodeSync(s.encodeBye({ session: 9 })), { type: s.SYNC_MSG.BYE, session: 9 });
   assert.deepEqual(s.decodeSync(s.encodeRosterRequest({ session: 9 })), { type: s.SYNC_MSG.ROSTER_REQUEST, session: 9 });
   assert.deepEqual(s.decodeSync(s.encodeKick({ reason: "Bye" })), { type: s.SYNC_MSG.KICK, reason: "Bye" });
-  assert.deepEqual(s.decodeSync(s.encodeNotice({ text: "Hi ✓" })), { type: s.SYNC_MSG.NOTICE, text: "Hi ✓" });
   assert.deepEqual(s.decodeSync(s.encodeVehicleState({ session: 9, seq: 3, vehicleId: 0, localId: 12, state: VEHICLE })), {
     type: s.SYNC_MSG.VEHICLE_STATE, session: 9, seq: 3, vehicleId: 0, localId: 12, state: VEHICLE
   });
@@ -50,6 +49,26 @@ test("every message survives an encode and decode", () => {
   assert.deepEqual(s.decodeSync(s.encodeVehicleAssign({ localId: 12, vehicleId: 7 })), { type: s.SYNC_MSG.VEHICLE_ASSIGN, localId: 12, vehicleId: 7 });
   assert.deepEqual(s.decodeSync(s.encodePing({ session: 9, clientTime: 5000, rtt: 42 })), { type: s.SYNC_MSG.PING, session: 9, clientTime: 5000, rtt: 42 });
   assert.deepEqual(s.decodeSync(s.encodePong({ clientTime: 5000, serverTime: 123 })), { type: s.SYNC_MSG.PONG, clientTime: 5000, serverTime: 123 });
+});
+
+test("reliable packets and their message kinds survive an encode and decode", () => {
+  const messages = [{ seq: 65535, more: true, payload: Buffer.from("ab") }, { seq: 0, more: false, payload: Buffer.alloc(0) }];
+  assert.deepEqual(s.decodeSync(s.encodeReliable({ session: 9, ack: 12, ackBits: 0x80000001, messages })), {
+    type: s.SYNC_MSG.RELIABLE, session: 9, ack: 12, ackBits: 0x80000001, messages
+  });
+  assert.deepEqual(s.decodeChannelMessage(s.encodeChat({ playerId: 4, text: "hi ✓" })), { kind: s.SYNC_CHANNEL.CHAT, playerId: 4, text: "hi ✓" });
+  assert.deepEqual(s.decodeChannelMessage(s.encodeChannelNotice({ text: "Paid" })), { kind: s.SYNC_CHANNEL.NOTICE, text: "Paid" });
+  assert.deepEqual(s.decodeChannelMessage(s.encodeEvent({ name: "jobs:clockIn", args: [1, "a", { b: true }] })), {
+    kind: s.SYNC_CHANNEL.EVENT, name: "jobs:clockIn", args: [1, "a", { b: true }]
+  });
+  // Event arguments must be a JSON array.
+  const notArray = Buffer.concat([Buffer.from([s.SYNC_CHANNEL.EVENT, 1]), Buffer.from("x"), Buffer.from('{"a":1}')]);
+  assert.equal(s.decodeChannelMessage(notArray), null);
+  assert.equal(s.decodeChannelMessage(Buffer.concat([notArray.subarray(0, 3), Buffer.from("[1,")])), null);
+  assert.equal(s.decodeChannelMessage(Buffer.from([99])), null);
+  // A message claiming to be longer than the packet is refused.
+  const short = s.encodeReliable({ session: 1, ack: 0, ackBits: 0, messages: [{ seq: 1, more: false, payload: Buffer.from("abc") }] });
+  assert.equal(s.decodeSync(short.subarray(0, short.length - 1)), null);
 });
 
 test("numbers too big for their field are clamped, and steering keeps its sign", () => {
@@ -82,11 +101,14 @@ test("messages encode to the example packets in sync-vectors.json", () => {
     VEHICLE_ASSIGN: s.encodeVehicleAssign,
     PING: s.encodePing,
     PONG: s.encodePong,
-    ROSTER: (fields) => s.encodeRoster(fields)[0]
+    ROSTER: (fields) => s.encodeRoster(fields)[0],
+    RELIABLE: (fields) => s.encodeReliable({ ...fields, messages: fields.messages.map((m) => ({ ...m, payload: Buffer.from(m.payload, "hex") })) })
   };
   for (const v of vectors.messages) {
     assert.equal(encoders[v.type](v.fields).toString("hex"), v.hex, v.type);
-    assert.deepEqual(s.decodeSync(Buffer.from(v.hex, "hex")), { type: s.SYNC_MSG[v.type], ...v.fields }, v.type);
+    const decoded = s.decodeSync(Buffer.from(v.hex, "hex"));
+    if (decoded.messages) decoded.messages = decoded.messages.map((m) => ({ ...m, payload: m.payload.toString("hex") }));
+    assert.deepEqual(decoded, { type: s.SYNC_MSG[v.type], ...v.fields }, v.type);
   }
   assert.equal(vectors.version, s.SYNC_VERSION);
 });
