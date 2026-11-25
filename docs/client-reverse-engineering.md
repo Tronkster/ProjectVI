@@ -60,6 +60,67 @@ A scan of `.text` for `cmp`/`mov` with a 32-bit constant that is a known joaat h
 (`Downloads\gta6-ida\hashscan.py`, `apply_names.py`, `hits.json`). Constants built in other ways, or held in
 data tables, aren't covered.
 
+## Script natives and the script system (25 Nov 2026)
+
+Goal was the script VM's native table (hash → handler), the native call context, and the VM's per-frame tick.
+**How natives are registered and called is still an open question.** What was found, and what was searched for
+without result.
+
+### Found: the game skeleton (RAGE `gameSkeleton`) and the script subsystems in it
+
+Subsystems register with three functions, each `(callback, u32 joaat(name))`, called from long lists at
+`0x14589E000`-`0x1458A4000` (924 registrations; 93 names match gta6-namehash; full table in the shared notes
+folder, `game-skeleton-registrations.json`):
+
+| Registrar | Calls | Role (from the callbacks' bodies) |
+|---|---|---|
+| `0x141BB1CF0` | 330 | init/shutdown system, callback takes an init mode (2 = core, 0x10, 0x20) |
+| `0x141BB1C30` | 571 | init/shutdown system, modes 1 and 8 (session start/end) |
+| `0x141BB1B00` | 34 | per-frame update group callbacks |
+
+The script subsystems are all there, with GTA V's names: `CTheScripts` (`0x249760F7`), `CScriptAreas`,
+`CScriptCars`, `CScriptPeds`, `CScriptEntities`, `CScriptHud`, `CScriptDebug` (stubbed out in this build). Addresses:
+
+- `CTheScripts` init: `0x1429DEB90` (mode 2 reads ~25 tuning values and sets up per-thread memory contexts at
+  `0x1440468C0`; neighbouring functions `0x1429DF490`, `0x1429DFAF0` are the session-start/end hooks of the same
+  source file). Shutdown: `0x142B1CD90`.
+- `CTheScripts` per-frame update: `0x140B1AE00` → `0x140B1AE10`. **This is the best hook point found for running
+  client code once per frame on the game thread**, and the game skeleton itself (registrar `0x141BB1B00`) is a
+  clean way to add our own update callback in the same list.
+- How we know: the hashes are joaat of the class names (checked with the same hash as gta6-namehash), and the
+  registration order and modes match GTA V's skeleton.
+
+### `ScriptStore` (the script program store) is nearly empty
+
+`ScriptStore` is a streaming module (id 89, set up at `0x145CD9BA0`, vtable `0x14630AAE0`). Almost every slot
+of its vtable is a shared stub (`ret 0`, `ret 1`, `nullsub`); the only real code is the generic pool. In GTA V
+this store is where `.ysc` programs are loaded and their native hashes resolved to handlers.
+
+### Searched for without result: a GTA V-style native hash table
+
+Each of these would have found GTA V's or RDR2's layout, and none matched:
+
+- registration calls `register(hash64, handler)` or `register(handler, hash32)`, called or tail-jumped (no
+  registrar beyond the game skeleton, `atexit` and parser/reflection registrars);
+- a static array of {hash, handler} pairs, of handler pointers, or of 32-bit handler RVAs, at strides 8-32 bytes,
+  in `.rdata` and `.data` (none; the long pointer arrays are vtables and the CRT initialiser table `0x14678F688`);
+- an encoded table (long high-entropy arrays: they are fonts, certificates and other data);
+- the `{fn, next}` linked lists built by static initialisers (e.g. `0x145E15980`, 1,618 entries, head
+  `0x14ABCE390`) are lazy parser/type registrations, not natives;
+- `AMBIENT_SCRIPT_SLOT_%d` is audio (wave slots), not script threads.
+
+### Correction: scripts are not compiled into the executable
+
+An earlier version of this section guessed that the game's scripts were compiled into the executable, based on the
+small top-level `script.rpf` (4.3 MB). That guess was wrong: the game folder also has
+`pack/story000/story000_script.rpf` (78 MB), which is where the script data lives. The game does have a script
+VM, and the absence of a GTA V-style hash table means natives are linked some other way, not that there are none.
+
+### Open
+
+- How natives are linked and called, and the call context they read. Not documented here.
+- The per-frame hook point above (`CTheScripts` update) doesn't depend on that answer.
+
 ## Not done
 
 - No function in the game has been identified by name yet; the IDA database is outside the repo
