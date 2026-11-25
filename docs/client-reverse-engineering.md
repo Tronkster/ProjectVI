@@ -60,32 +60,73 @@ A scan of `.text` for `cmp`/`mov` with a 32-bit constant that is a known joaat h
 (`Downloads\gta6-ida\hashscan.py`, `apply_names.py`, `hits.json`). Constants built in other ways, or held in
 data tables, aren't covered.
 
-## Script natives: first search (25 Nov 2026, not found yet)
+## Script natives and the script system (25 Nov 2026)
 
-Goal: the script VM's native table (hash → handler), the call context natives read their arguments from, and
-the VM's per-frame tick. **None of these is located yet.** What static scans of `.text`/`.rdata`/`.data` ruled out,
-so the next attempt doesn't repeat them:
+Goal was the script VM's native table (hash → handler), the native call context, and the VM's per-frame tick.
+**The native table was not found, and the evidence now suggests this build may not have one in the GTA V sense.**
+What was found, what was ruled out, and why.
 
-- **No GTA V-style registration calls.** In GTA V natives were registered by thousands of calls
-  `register(hash64, handler)`. A scan for `mov r64, imm64` followed by `lea r, handler` and a `call` finds no
-  function called more than 74 times (that one is `atexit`). So natives are not registered one call each.
-- **No static (hash, handler) array.** No run of 200+ 16-byte pairs {64-bit non-pointer, pointer into `.text`}
-  in `.rdata` or `.data`, either order. The table is built at run time, or hashes and handlers are kept apart
-  (e.g. a sorted hash array plus a parallel handler array), or the hashes are 32-bit / transformed.
-- **Long arrays of code pointers exist** in `.rdata` (18 runs of 1,000-2,300 pointers, e.g. `0x1462102f0`,
-  `0x14650a6f0`); not yet checked whether they are vtables or a handler array. Worth checking first: a handler
-  array would be referenced from one place, and its entries would be small functions taking one pointer argument.
-- **Dense static-initialiser blocks** (e.g. `0x145c83140`, global list head `0x14abce390`) chain 16-byte nodes
-  {function, next} — these are lazy type/parser registrations (each function builds a descriptor once), not natives.
-- **Interpreter switch not identified.** Switches with 130-240 cases were listed (raw scan of `cmp reg, N; ja`);
-  the one checked (`0x14278c43f`, 132 cases) isn't the interpreter.
-- 1,050 functions start by reading `[rcx+10h]` — the GTA V `scrNativeCallContext` args field — too few and too
-  generic to be the native set by itself.
+### Found: the game skeleton (RAGE `gameSkeleton`) and the script subsystems in it
 
-Unsure / next steps: the in-game route is likely faster than more static scanning — once the title runs further
-under VIctory, break on reads of a known script (e.g. from `script.rpf` via rage9-re) and follow the interpreter's
-native opcode to the handler table at run time. Statically, the next check is the large `.rdata` pointer arrays
-above. Scan scripts are kept outside the repo (session scratchpad).
+Subsystems register with three functions, each `(callback, u32 joaat(name))`, called from long lists at
+`0x14589E000`-`0x1458A4000` (924 registrations; 93 names match gta6-namehash; full table in the shared notes
+folder, `game-skeleton-registrations.json`):
+
+| Registrar | Calls | Role (from the callbacks' bodies) |
+|---|---|---|
+| `0x141BB1CF0` | 330 | init/shutdown system, callback takes an init mode (2 = core, 0x10, 0x20) |
+| `0x141BB1C30` | 571 | init/shutdown system, modes 1 and 8 (session start/end) |
+| `0x141BB1B00` | 34 | per-frame update group callbacks |
+
+The script subsystems are all there, with GTA V's names: `CTheScripts` (`0x249760F7`), `CScriptAreas`,
+`CScriptCars`, `CScriptPeds`, `CScriptEntities`, `CScriptHud`, `CScriptDebug` (stubbed out in this build). Addresses:
+
+- `CTheScripts` init: `0x1429DEB90` (mode 2 reads ~25 tuning values and sets up per-thread memory contexts at
+  `0x1440468C0`; neighbouring functions `0x1429DF490`, `0x1429DFAF0` are the session-start/end hooks of the same
+  source file). Shutdown: `0x142B1CD90`.
+- `CTheScripts` per-frame update: `0x140B1AE00` → `0x140B1AE10`. **This is the best hook point found for running
+  client code once per frame on the game thread**, and the game skeleton itself (registrar `0x141BB1B00`) is a
+  clean way to add our own update callback in the same list.
+- How we know: the hashes are joaat of the class names (checked with the same hash as gta6-namehash), and the
+  registration order and modes match GTA V's skeleton.
+
+### `ScriptStore` (the script program store) is nearly empty
+
+`ScriptStore` is a streaming module (id 89, set up at `0x145CD9BA0`, vtable `0x14630AAE0`). Almost every slot
+of its vtable is a shared stub (`ret 0`, `ret 1`, `nullsub`); the only real code is the generic pool. In GTA V
+this store is where `.ysc` programs are loaded and their native hashes resolved to handlers.
+
+### Ruled out: a native table anywhere in the executable
+
+Each of these would have found GTA V's or RDR2's layout:
+
+- registration calls `register(hash64, handler)` or `register(handler, hash32)`, called or tail-jumped (no
+  registrar beyond the game skeleton, `atexit` and parser/reflection registrars);
+- a static array of {hash, handler} pairs, of handler pointers, or of 32-bit handler RVAs, at strides 8-32 bytes,
+  in `.rdata` and `.data` (none; the long pointer arrays are vtables and the CRT initialiser table `0x14678F688`);
+- an encoded table (long high-entropy arrays: they are fonts, certificates and other data);
+- a bytecode interpreter: no function has both a 100-250-case opcode switch and a `call [table+idx*8]`, and no
+  function has the many indirect jumps of a threaded interpreter;
+- the `{fn, next}` linked lists built by static initialisers (e.g. `0x145E15980`, 1,618 entries, head
+  `0x14ABCE390`) are lazy parser/type registrations, not natives;
+- `AMBIENT_SCRIPT_SLOT_%d` is audio (wave slots), not script threads.
+
+### What this suggests (unconfirmed)
+
+rage9-re's notes on `script.rpf` fit the same picture: the whole archive is 4.3 MB, almost all of it structured
+data trees, plus one 334 KB encrypted entry. GTA V shipped tens of MB of script bytecode. Together with the empty
+`ScriptStore` and no native table, a likely explanation is that **most game scripts are compiled into the
+executable as native code** (the binary has 434,408 functions), so "natives" are ordinary C++ calls with no
+hash table to hook. If so, the FiveM model (hook natives, call them by hash) doesn't carry over directly; the client
+would instead hook the game's own functions for spawning, placing and moving peds/vehicles, found one by one.
+
+Not yet checked, and worth doing next:
+
+- Confirm or refute the compiled-scripts idea at run time: once the title runs further under VIctory, see whether
+  anything is ever loaded through `ScriptStore` and whether the 334 KB blob is read.
+- Find the entity-creation functions directly (ped/vehicle pools and their factories) through the pool names and
+  model-info hashes already labelled in the database (`CVehicleModelInfo`, `PED`, `VEHICLE`).
+- The call-context question is open: no native call context exists to reuse if there are no natives.
 
 ## Not done
 
