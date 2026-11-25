@@ -23,6 +23,11 @@ public static class ServerEvents
     /// <summary>A player left. Arguments: <c>Player player, string reason</c>.</summary>
     public const string PlayerLeft = "playerLeft";
 
+    /// <summary>
+    /// A player said something in chat (not a /command; those run the command). Arguments: <c>Player player, string message</c>.
+    /// </summary>
+    public const string PlayerChat = "playerChat";
+
     /// <summary>A resource started. Arguments: <c>string resource</c>.</summary>
     public const string ResourceStarted = "resourceStarted";
 

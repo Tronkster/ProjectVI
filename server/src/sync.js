@@ -2,9 +2,9 @@
 // and get snapshots of the players and vehicles near them. Format: packages/shared/sync.js and
 // docs/protocol.md.
 //
-// UDP is used because state is replaced every tick: a lost packet is better skipped than resent.
-// Nothing here is reliable; anything that must arrive (chat, script events) needs the reliable channel,
-// which isn't built yet.
+// UDP is used because state is replaced every tick: a lost packet is better skipped than resent. What must
+// arrive (chat, script events, notices) goes over each session's reliable channel (packages/shared/reliable.js)
+// in RELIABLE packets on the same port. KICK stays outside it: the session is gone straight after.
 //
 // Vehicles: each one is simulated by one player's client (its controller), which reports it with
 // VEHICLE_STATE; everyone else draws it from VEHICLES. The driver controls their vehicle. An empty vehicle
@@ -30,8 +30,14 @@ const {
   encodePong,
   encodeRoster,
   encodeKick,
-  encodeNotice,
+  encodeReliable,
+  encodeChat,
+  encodeChannelNotice,
+  encodeEvent,
+  decodeChannelMessage,
   decodeSync,
+  SYNC_CHANNEL,
+  ReliableChannel,
   seqNewer,
   validatePlayerName
 } = require("@projectvi/shared");
@@ -46,6 +52,11 @@ const MAX_STATES_PER_SECOND = 90; // clients send at the tick rate; this leaves 
 const MAX_VEHICLE_STATES_PER_SECOND = 1000;
 const HELLOS_PER_SECOND_PER_IP = 5;
 const MIN_PING_INTERVAL_MS = 200;
+const MAX_CHAT_PER_SECOND = 5;
+const MAX_CHAT_LENGTH = 500;
+const MAX_EVENTS_PER_SECOND = 50; // script events from one client; they end up in the script runtimes
+const MAX_EVENT_BYTES = 16 * 1024; // either way. An event for every player is copied into every queue
+const EVENT_NAME = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 const finite = (v) => Number.isFinite(v);
 
@@ -67,6 +78,14 @@ function validVehicle(v) {
   if (!validCoords(v.position) || !validVelocity(v.velocity) || ![q.x, q.y, q.z, q.w].every(finite)) return false;
   const length = Math.hypot(q.x, q.y, q.z, q.w);
   return length > 0.5 && length < 1.5;
+}
+
+// {"$player": id} in event arguments becomes a Player object in scripts. A client mustn't be able to hand a
+// script some other player that way, so its events may not contain one.
+function hasPlayerReference(value) {
+  if (Array.isArray(value)) return value.some(hasPlayerReference);
+  if (value && typeof value === "object") return "$player" in value || Object.values(value).some(hasPlayerReference);
+  return false;
 }
 
 function normalise(q) {
@@ -124,6 +143,9 @@ class SyncServer {
     this.tick = 0;
     this.socket = null;
     this.timer = null;
+    // Script events for players (emitted with a client target) come here.
+    this.sendToClients = (target, name, args) => this.sendEvent(target, name, args);
+    core.bus.sendToClients = this.sendToClients;
   }
 
   serverTime() {
@@ -148,6 +170,7 @@ class SyncServer {
 
   close() {
     clearInterval(this.timer);
+    if (this.core.bus.sendToClients === this.sendToClients) this.core.bus.sendToClients = null;
     for (const s of [...this.sessions.values()]) this.drop(s, "Server shutting down", { kick: true });
     return new Promise((resolve) => (this.socket ? this.socket.close(resolve) : resolve()));
   }
@@ -179,6 +202,7 @@ class SyncServer {
     if (msg.type === SYNC_MSG.STATE) this.onState(s, msg);
     else if (msg.type === SYNC_MSG.VEHICLE_STATE) this.onVehicleState(s, msg);
     else if (msg.type === SYNC_MSG.PING) this.onPing(s, msg);
+    else if (msg.type === SYNC_MSG.RELIABLE) this.onReliable(s, msg);
     else if (msg.type === SYNC_MSG.ROSTER_REQUEST) this.sendRoster(s);
     else if (msg.type === SYNC_MSG.BYE) this.drop(s, "Left");
   }
@@ -218,10 +242,13 @@ class SyncServer {
       localVehicles: new Map(), // the client's local id -> vehicle id, for vehicles it registered
       driving: 0,
       lastPing: -Infinity,
+      reliable: new ReliableChannel({ now: this.now }),
+      chatBudget: { second, count: 0 },
+      eventBudget: { second, count: 0 },
       playerId: 0
     };
     const connection = {
-      notify: (text) => this.send(encodeNotice({ text }), address, port),
+      notify: (text) => this.queue(record, encodeChannelNotice({ text })),
       close: (reason) => {
         if (this.sessions.has(session)) this.drop(record, reason, { kick: true, fromCore: true });
       }
@@ -345,6 +372,83 @@ class SyncServer {
     }
   }
 
+  // ---- Reliable messages ----
+
+  onReliable(s, msg) {
+    const delivered = s.reliable.receive(msg);
+    if (s.reliable.failed) return this.drop(s, s.reliable.failed, { kick: true });
+    this.flush(s); // acknowledge now, so the client doesn't resend what arrived
+    for (const payload of delivered) {
+      const message = decodeChannelMessage(payload);
+      if (message?.kind === SYNC_CHANNEL.CHAT) this.onChat(s, message.text);
+      else if (message?.kind === SYNC_CHANNEL.EVENT) this.onClientEvent(s, message, payload.length);
+    }
+  }
+
+  withinBudget(budget, max) {
+    const second = Math.floor(this.now() / 1000);
+    if (budget.second !== second) {
+      budget.second = second;
+      budget.count = 0;
+    }
+    return ++budget.count <= max;
+  }
+
+  // A line starting with / runs a command (permissions are checked there) and the reply comes back as a notice.
+  // Anything else goes to scripts as playerChat and to every player.
+  onChat(s, text) {
+    const line = text.trim();
+    const player = this.core.players.get(s.playerId);
+    if (!player || !line || line.length > MAX_CHAT_LENGTH || !this.withinBudget(s.chatBudget, MAX_CHAT_PER_SECOND)) return;
+    if (line.startsWith("/")) {
+      this.core.runCommand(player.id, line).then(
+        (reply) => reply && this.core.notify(player, reply),
+        (err) => this.log.error(`${line.split(" ")[0]} from ${player.name} failed: ${err.message}`)
+      );
+      return;
+    }
+    this.log.info(`[chat] ${player.name}: ${line}`);
+    this.core.bus.emit("playerChat", [{ $player: player.id }, line]);
+    const buf = encodeChat({ playerId: player.id, text: line });
+    for (const other of [...this.sessions.values()]) this.queue(other, buf);
+  }
+
+  onClientEvent(s, { name, args }, size) {
+    if (!EVENT_NAME.test(name) || size > MAX_EVENT_BYTES || hasPlayerReference(args)) return;
+    if (!this.withinBudget(s.eventBudget, MAX_EVENTS_PER_SECOND)) return;
+    if (!this.core.bus.emitFromClient(s.playerId, name, args)) this.log.debug?.(`Nothing on the server accepts the net event ${name}.`);
+  }
+
+  // target: "clients" or "client:<playerId>", from the event bus.
+  sendEvent(target, name, args) {
+    let payload;
+    try {
+      payload = encodeEvent({ name, args });
+    } catch (err) {
+      return this.log.warn(`Event ${name} can't be sent to players: ${err.message}`);
+    }
+    if (payload.length > MAX_EVENT_BYTES) {
+      return this.log.warn(`Event ${name} is too big to send to players (${payload.length} bytes; the limit is ${MAX_EVENT_BYTES}).`);
+    }
+    if (target === "clients") {
+      for (const s of [...this.sessions.values()]) this.queue(s, payload);
+    } else if (target.startsWith("client:")) {
+      const s = this.sessionOf(Number(target.slice("client:".length)));
+      if (s) this.queue(s, payload);
+    }
+  }
+
+  // Queues a reliable message; it goes out on the next tick. A client that stops acknowledging is dropped
+  // once too much is waiting.
+  queue(s, payload) {
+    if (!s.reliable || !this.sessions.has(s.session)) return;
+    if (!s.reliable.send(payload)) this.drop(s, s.reliable.failed, { kick: true });
+  }
+
+  flush(s) {
+    for (const packet of s.reliable.poll()) this.send(encodeReliable({ session: s.session, ...packet }), s.address, s.port);
+  }
+
   // ---- Outgoing ----
 
   sendRoster(s) {
@@ -421,6 +525,9 @@ class SyncServer {
         this.send(encodeVehicles({ tick: this.tick, serverTime, entries: chunk }), viewer.address, viewer.port);
       }
     }
+
+    // Reliable messages queued since the last tick, and resends.
+    for (const s of [...this.sessions.values()]) if (s.reliable) this.flush(s);
   }
 
   // Removes a session. fromCore: the core is already removing the player (a kick from a script).

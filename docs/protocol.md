@@ -119,7 +119,7 @@ The launcher stores server content but never runs it. Running it is the ProjectV
 
 `GET /projectvi/info` includes `sync: { version, port, tickRate }` when sync is on. The format is defined in
 `packages/shared/sync.js`, which both sides use, and `packages/shared/test/sync-vectors.json` has an example packet
-of each kind for clients written in other languages. Every packet starts with `"PV"`, the sync version (2) and a
+of each kind for clients written in other languages. Every packet starts with `"PV"`, the sync version (3) and a
 type byte; numbers are little-endian, floats 32-bit, and packets stay under 1,200 bytes. A packet of another version
 is ignored.
 
@@ -134,12 +134,12 @@ is ignored.
 | `ROSTER` 7 | server → client | roster version, page, pages, then per player: id, flags (1 host), character model hash (0: none), name |
 | `BYE` 8 | client → server | session |
 | `KICK` 9 | server → client | reason |
-| `NOTICE` 10 | server → client | text to show the player |
 | `VEHICLE_STATE` 11 | client → server | session, sequence, vehicle id, local id, then a vehicle state. Every tick for each vehicle the client controls |
 | `VEHICLES` 12 | server → client | tick, server time, then up to 22 × (vehicle id, controlling player id or 0, vehicle state). Every tick there are vehicles near the player |
 | `VEHICLE_ASSIGN` 13 | server → client | local id, vehicle id. The answer to a `VEHICLE_STATE` with vehicle id 0 |
 | `PING` 14 | client → server | session, client time, the client's last round trip in ms (0 before the first) |
 | `PONG` 15 | server → client | the client time from `PING`, server time |
+| `RELIABLE` 16 | both ways | session, acknowledgement, then reliable messages. See below |
 
 Player state (56 bytes): position (x, y, z), velocity (x, y, z), heading in degrees (0 = north, counter-clockwise),
 flags (16 bits), model hash (0: each client picks), health (16 bits), armour (8 bits), weapon hash, aim point
@@ -159,7 +159,8 @@ Server rules:
   states and 1,000 vehicle states a second per player; 5 `HELLO`s a second per IP; one `PING` every 200 ms.
 - Players only receive others, and vehicles, within `[sync] stream_radius` (500 m by default). A player silent for
   `timeout_seconds` (10) is dropped and sent `KICK`.
-- Nothing on this channel is reliable. Identity isn't verified yet: a player's only identifier is `session:<hex>`.
+- Only `RELIABLE` packets are resent when lost; everything else is replaced by the next tick's. Identity isn't
+  verified yet: a player's only identifier is `session:<hex>`.
 - The round trip a client reports in `PING` is what scripts get from `player.ping`. It's for display: a client
   can report anything.
 
@@ -190,6 +191,47 @@ Vehicles:
   of a free seat wins, and the driver controls the vehicle. An empty vehicle stays with its controller while they're
   within 150 m of it, then goes to the nearest player in range, or nobody.
 
+## Reliable messages
+
+Chat, script events and notices must arrive, so they go over a reliable, ordered stream: one each way per session,
+carried in `RELIABLE` packets on the same port. `packages/shared/reliable.js` implements it for both sides.
+
+`RELIABLE` packet: session (the server sends the client's own), ack (the next message number the sender of this
+packet expects), ack bits (bit *i* set: message ack + 1 + *i* has arrived too), count, then per message: number
+(16 bits, wrapping), flags (1: more fragments of the same message follow), length (16 bits), payload. A packet with
+no messages is just an acknowledgement.
+
+- **Sending:** messages are numbered in order. A message bigger than 1,000 bytes is split into fragments, each a
+  message of its own; ordered delivery keeps them together. At most 256 messages are in flight. Anything not
+  acknowledged is resent after the measured round trip plus four times its variation (300 ms before the first
+  measurement, 100 ms to 2 s), doubling for each further resend. Only messages sent once count towards the round
+  trip.
+- **Receiving:** acknowledge as soon as a packet with messages arrives, duplicates included. Hold messages that
+  arrive early (up to 256 ahead) and deliver in order.
+- **Limits:** a message is at most 64 KB once put back together. More than 256 KB waiting for acknowledgement, or a
+  bigger message, drops the session (`KICK` from the server).
+- `KICK` is sent outside the stream, because the session is dropped straight after. A notice queued just before a
+  kick may never arrive.
+
+Payload kinds, the first byte of a message:
+
+| Kind | Direction | Contents |
+| --- | --- | --- |
+| `CHAT` 1 | both ways | player id (16 bits; 0 from a client), text (16-bit length, at most 500 characters) |
+| `EVENT` 2 | both ways | name (8-bit length), then the arguments as a JSON array |
+| `NOTICE` 3 | server → client | text (16-bit length) |
+
+Server rules for what clients send:
+
+- **Chat:** a line starting with `/` runs that command as the player (permissions are checked) and the reply comes
+  back as a notice. Any other line goes to scripts as `playerChat` (`Player player, string message`) and to every
+  player, the sender included. Up to 5 lines a second.
+- **Events** go only to `[NetEvent]` handlers, with the player as the source. Names are 1-64 letters, digits and
+  `_ . : -`; events are at most 16 KB and 50 a second; arguments that contain `{"$player": …}` are refused, so a
+  client can't hand a script some other player.
+- **Events for players:** scripts emit them with a client target (one player or all). An event bigger than 16 KB
+  isn't sent.
+
 Client side. `packages/shared/sync-client.js` is the reference client: the bots (`npm run dev:bots`) use it, and the
 game client should behave the same way.
 
@@ -208,4 +250,6 @@ game client should behave the same way.
   you registered: `VEHICLE_ASSIGN` tells you which id is yours.
 - When the roster gives you a character, switch your player to it (0: keep your own look). Run the story only while
   you are the host.
+- Send reliable messages, acknowledgements and resends with every `STATE`, as soon as a message is queued, and as
+  soon as a `RELIABLE` packet with messages arrives.
 - Send `PING` once a second and `BYE` when leaving.

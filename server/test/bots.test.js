@@ -137,3 +137,32 @@ test("bots leave with BYE, and a bot turned away by a full server reports why", 
     await s.sync.close();
   }
 });
+
+test("over a link that loses 20% of packets, every chat line and script event still arrives, in order", async () => {
+  const s = await startServer();
+  const center = { x: 0, y: 0, z: 10 };
+  const lossy = { lossRate: 0.2 };
+  const bots = ["Ana", "Ben", "Cyd"].map((name, i) =>
+    createBot({ host: "127.0.0.1", port: s.port, name, mover: createMover({ mode: "idle", center, spread: 20, random: seeded(i + 1) }), clientOptions: lossy })
+  );
+  const events = [];
+  s.core.bus.subscribe({ dispatch: (name, args, options) => events.push([args[0], options.source]) }, "test:ping", true);
+  try {
+    // A HELLO can be lost too: start() keeps resending it.
+    await Promise.all(bots.map((b) => b.start()));
+    const heard = bots.map(() => []);
+    bots.forEach((b, i) => b.client.on("chat", (id, text) => heard[i].push(text)));
+    const lines = Array.from({ length: 10 }, (_, i) => `line ${i}`);
+    for (const line of lines) {
+      bots[0].client.sendChat(line);
+      bots[1].client.sendEvent("test:ping", [line]);
+      await wait(250); // stays under the 5 chat lines a second limit
+    }
+    for (let i = 0; i < 60 && heard.some((h) => h.length < lines.length); i++) await wait(100);
+    for (const h of heard) assert.deepEqual(h, lines);
+    assert.deepEqual(events, lines.map((line) => [line, bots[1].client.playerId]));
+  } finally {
+    await Promise.all(bots.map((b) => b.stop()));
+    await s.sync.close();
+  }
+});

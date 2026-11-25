@@ -17,9 +17,15 @@ const {
   encodePing,
   encodeRosterRequest,
   encodeBye,
+  encodeReliable,
+  encodeChat,
+  encodeEvent,
+  decodeChannelMessage,
   decodeSync,
-  createInterpolator
+  createInterpolator,
+  SYNC_CHANNEL
 } = require("./sync");
+const { ReliableChannel } = require("./reliable");
 
 const UPDATE_MS = 250; // how often timeouts, stream-outs, roster retries and pings are checked
 const ROSTER_RETRY_MS = 1000;
@@ -37,10 +43,13 @@ const CLOCK_WINDOW = 40; // snapshots kept for the server clock estimate: 2 s at
 //   "role" ({ character, host }) our own character or host status changed: switch the local player's
 //                              model to `character` (0: keep your own), and run the story only while `host`
 //   "notice" (text)            a message for the player
+//   "chat" (playerId, text)    a chat line, including our own
+//   "event" (name, args)       a script event the server sent this client
 //   "close" ({ reason, kicked })
 class SyncClient extends EventEmitter {
   // host, port: the server's sync address (GET /projectvi/info gives the port). name: the player name.
   // now: a millisecond clock; tests pass their own.
+  // lossRate: drops this share of packets both ways, to test over a bad network. 0 for real use.
   constructor({
     host,
     port,
@@ -49,6 +58,7 @@ class SyncClient extends EventEmitter {
     helloAttempts = 10,
     timeoutMs = 10_000,
     streamOutMs = 1000,
+    lossRate = 0,
     now = () => performance.now()
   }) {
     super();
@@ -59,6 +69,8 @@ class SyncClient extends EventEmitter {
     this.helloAttempts = helloAttempts;
     this.timeoutMs = timeoutMs;
     this.streamOutMs = streamOutMs;
+    this.lossRate = lossRate;
+    this.reliable = null; // chat, events and notices, once joined
     this.now = now;
     this.startedAt = now();
 
@@ -131,6 +143,7 @@ class SyncClient extends EventEmitter {
           // Two snapshot intervals behind, so there's usually a newer state to move towards.
           this.delayMs = Math.max(100, Math.round(2000 / msg.tickRate));
           this.observeServerTime(msg.serverTime);
+          this.reliable = new ReliableChannel({ now: this.now });
           this.updateTimer = setInterval(() => this.update(), UPDATE_MS);
           resolve({ session: msg.session, playerId: msg.playerId, tickRate: msg.tickRate });
         },
@@ -151,21 +164,65 @@ class SyncClient extends EventEmitter {
   }
 
   send(buf) {
+    if (this.lossRate && Math.random() < this.lossRate) return;
     if (this.socket && !this.closed) this.socket.send(buf, this.port, this.address);
   }
 
   // Sends the local player's state. Call once a tick (the tick rate is in the connect() result).
+  // Reliable messages waiting to go out, and resends, ride along.
   sendState(state) {
     if (!this.connected) return false;
     this.seq = (this.seq + 1) & 0xffff;
     this.send(encodeState({ session: this.session, seq: this.seq, clientTime: (this.now() - this.startedAt) >>> 0, state }));
+    this.flushReliable();
     return true;
+  }
+
+  // ---- Reliable messages: these always arrive, in order ----
+
+  // A chat line, or a command starting with /. The server answers commands with a notice.
+  sendChat(text) {
+    return this.queueReliable(encodeChat({ text }));
+  }
+
+  // A script event for the server: [NetEvent] handlers in C# get it, with this player as the source.
+  sendEvent(name, args = []) {
+    return this.queueReliable(encodeEvent({ name, args }));
+  }
+
+  queueReliable(payload) {
+    if (!this.connected) return false;
+    if (!this.reliable.send(payload)) {
+      this.end(this.reliable.failed);
+      return false;
+    }
+    this.flushReliable();
+    return true;
+  }
+
+  flushReliable() {
+    if (!this.connected) return;
+    for (const packet of this.reliable.poll()) this.send(encodeReliable({ session: this.session, ...packet }));
+  }
+
+  onReliable(msg) {
+    if (msg.session !== this.session) return;
+    const delivered = this.reliable.receive(msg);
+    if (this.reliable.failed) return this.end(this.reliable.failed);
+    this.flushReliable(); // acknowledge now, so the server doesn't resend what arrived
+    for (const payload of delivered) {
+      const message = decodeChannelMessage(payload);
+      if (message?.kind === SYNC_CHANNEL.CHAT) this.emit("chat", message.playerId, message.text);
+      else if (message?.kind === SYNC_CHANNEL.EVENT) this.emit("event", message.name, message.args);
+      else if (message?.kind === SYNC_CHANNEL.NOTICE) this.emit("notice", message.text);
+    }
   }
 
   // ---- Incoming ----
 
   handle(buf, rinfo) {
     if (this.closed || rinfo.address !== this.address || rinfo.port !== this.port) return;
+    if (this.lossRate && Math.random() < this.lossRate) return;
     const msg = decodeSync(buf);
     if (!msg) return;
     this.lastHeard = this.now();
@@ -197,8 +254,8 @@ class SyncClient extends EventEmitter {
       case SYNC_MSG.ROSTER:
         if (this.session !== null) this.onRoster(msg);
         break;
-      case SYNC_MSG.NOTICE:
-        this.emit("notice", msg.text);
+      case SYNC_MSG.RELIABLE:
+        if (this.session !== null) this.onReliable(msg);
         break;
       case SYNC_MSG.KICK:
         if (this.pending) this.pending.fail(Object.assign(new Error(msg.reason), { code: "REJECTED" }));
@@ -372,6 +429,7 @@ class SyncClient extends EventEmitter {
       this.lastPingAt = now;
       this.send(encodePing({ session: this.session, clientTime: (now - this.startedAt) >>> 0, rtt: this.rtt ?? 0 }));
     }
+    this.flushReliable();
     // A lost roster page: ask again.
     if (this.roster && now - this.roster.askedAt >= ROSTER_RETRY_MS) this.requestRoster(this.roster.version);
   }
