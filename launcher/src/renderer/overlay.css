@@ -1,0 +1,139 @@
+:root {
+  --panel: rgba(12, 14, 20, 0.72);
+  --panel-strong: rgba(12, 14, 20, 0.9);
+  --text: #f2f4f8;
+  --muted: rgba(242, 244, 248, 0.65);
+  --accent: #ff4f8b;
+  --host: #ffc857;
+  /* No color-scheme here: Chromium paints a framed page opaque when its color scheme differs from the page around
+     it, and the script pages' frames cover the whole screen. */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text);
+  font: 15px/1.4 "Archivo Variable", system-ui, sans-serif;
+  user-select: none;
+}
+
+/* Script UI pages: full screen, see-through, and they never take the mouse. */
+#pages iframe {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+#pages iframe[hidden] { display: none; }
+
+.chat {
+  position: fixed;
+  left: 32px;
+  bottom: 120px;
+  width: min(560px, 40vw);
+}
+
+.chat-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow: hidden;
+  justify-content: flex-end;
+}
+
+.chat-lines li {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  overflow-wrap: anywhere;
+  transition: opacity 600ms ease;
+}
+.chat-lines li.faded { opacity: 0; }
+.chat.open .chat-lines li.faded { opacity: 1; }
+.chat-lines .name { font-weight: 700; margin-right: 6px; }
+.chat-lines .server .name { color: var(--accent); }
+
+.chat-input { margin-top: 8px; }
+.chat-input input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: var(--panel-strong);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.chat-input input:focus { border-color: var(--accent); }
+
+.hint {
+  margin: 6px 2px 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+.chat.open .hint { display: none; }
+
+.players {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 60vw);
+  max-height: 70vh;
+  overflow: hidden;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--panel-strong);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.players header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.players header #player-count { color: var(--muted); font-weight: 500; }
+.players ol { list-style: none; margin: 0; padding: 0; }
+.players li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.players li.me { color: var(--accent); }
+.players .tag { font-size: 12px; color: var(--host); }
+
+.notices {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+.notice {
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--panel-strong);
+  border-left: 3px solid var(--accent);
+  overflow-wrap: anywhere;
+  animation: in 200ms ease-out;
+}
+.notice.gone { opacity: 0; transition: opacity 400ms ease; }
+@keyframes in { from { opacity: 0; transform: translateY(-6px); } }

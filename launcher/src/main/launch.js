@@ -1,6 +1,6 @@
 // Starting the emulator. No Electron imports, so this file can be tested with plain node:test.
 
-const { spawn } = require("node:child_process");
+const { fork, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -81,12 +81,10 @@ function launchGame(settings, extra, onExit, { clientMain = "" } = {}) {
       child.unref();
       if (!clientMain) return resolve({ ok: true });
       const client = buildClientLaunch(plan, clientMain);
-      const companion = spawn(client.exe, client.args, { cwd: plan.cwd, detached: true, stdio: "ignore", env: client.env, windowsHide: true });
+      // With an IPC channel: the client sends the overlay what to show (overlay.js).
+      const companion = fork(client.args[0], [], { execPath: client.exe, cwd: plan.cwd, env: client.env, stdio: ["ignore", "ignore", "ignore", "ipc"], windowsHide: true });
       companion.once("error", (err) => resolve({ ok: true, clientError: `The emulator started, but the ProjectVI client didn't: ${err.message}` }));
-      companion.once("spawn", () => {
-        companion.unref();
-        resolve({ ok: true });
-      });
+      companion.once("spawn", () => resolve({ ok: true, client: companion }));
     });
   });
 }

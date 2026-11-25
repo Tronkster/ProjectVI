@@ -285,13 +285,15 @@ function registerIpc(ctx) {
       }
     }, { clientMain: clientEntry() });
     if (result.clientError) logger.warn("The ProjectVI client didn't start", { error: result.clientError });
+    if (result.client) ctx.overlay?.attach(result.client);
     if (result.ok) {
       logger.info("Emulator started for a server", { server: serverId, client: !result.clientError });
       playingOn = serverId;
       reportPresence();
     }
     else logger.warn("Emulator didn't start", { error: result.error });
-    return result;
+    // The renderer gets plain data only, not the client process.
+    return { ok: result.ok, error: result.error, code: result.code, clientError: result.clientError };
   });
   handle("game:launch", async () => {
     const result = await launchGame(store.get(), { modsFile: mods.enabledListFile() });

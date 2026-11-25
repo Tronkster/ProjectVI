@@ -1,9 +1,11 @@
 // ProjectVI launcher: main process entry.
 // Owns the app lifecycle, the window and the tray. Feature code lives in the sibling modules.
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, globalShortcut, nativeImage, shell } = require("electron");
 const path = require("node:path");
-const { ORIGIN, registerScheme, serveApp } = require("./protocol");
+const { ORIGIN, registerScheme, serveApp, serveUi } = require("./protocol");
+const { Overlay, createOverlayWindow } = require("./overlay");
+const { createUiContent } = require("./ui-content");
 const { createSettingsStore } = require("./settings");
 const { createLogger } = require("./logger");
 const { registerIpc } = require("./ipc");
@@ -126,7 +128,25 @@ if (!app.requestSingleInstanceLock()) {
 
     Menu.setApplicationMenu(null);
     serveApp(RENDERER_DIR);
-    registerIpc({ store, logger, getWindow: () => win, getPaths, onSettingsChanged });
+    const ui = createUiContent();
+    serveUi(ui);
+    const overlay = new Overlay({
+      createWindow: () => createOverlayWindow({
+        preload: path.join(__dirname, "..", "overlay-preload.js"),
+        url: `${ORIGIN}/overlay.html`,
+        onPage: (type, payload) => overlay.fromPage(type, payload)
+      }),
+      shortcuts: {
+        register: (key, fn) => {
+          if (!globalShortcut.register(key, fn)) logger.warn("Couldn't take an overlay key; another program has it", { key });
+        },
+        unregister: (key) => globalShortcut.isRegistered(key) && globalShortcut.unregister(key)
+      },
+      ui,
+      logger
+    });
+    app.on("will-quit", () => overlay.close("The launcher is quitting."));
+    registerIpc({ store, logger, getWindow: () => win, getPaths, onSettingsChanged, overlay });
     createWindow();
     ensureTray(store.get().closeToTray);
   });
