@@ -113,8 +113,14 @@ The file's bytes. Files are addressed by hash, so they can be cached forever.
 | `PROJECTVI_CONTENT` | path to the file from step 4 |
 | `PROJECTVI_MODS` | path to the enabled public mods list (see [making-mods.md](making-mods.md)) |
 | `PROJECTVI_TICKET` | a join ticket for the server (see "Join tickets" below), or empty |
+| `PROJECTVI_BRIDGE_FILE` | where the emulator writes its bridge address (see [client.md](client.md)) |
+| `PROJECTVI_CLIENT_LOG` | the client's log file |
+| `VICTORY_BRIDGE_FILE` | the same bridge file, for the emulator (VIctory opens its bridge when it's set) |
 
-The launcher stores server content but never runs it. Running it is the ProjectVI client's job.
+When joining a server, the launcher also starts the ProjectVI client with the same variables
+([client.md](client.md)). A plain launch from Settings starts neither the client nor a bridge.
+
+The launcher stores server content but never runs it. Running it will be the ProjectVI client's job.
 
 ## Player sync (UDP on the game port)
 

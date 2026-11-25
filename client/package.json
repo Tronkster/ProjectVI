@@ -1,0 +1,21 @@
+{
+  "name": "@projectvi/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The ProjectVI client: runs beside the emulator, joins the game server and drives the game through the emulator's bridge.",
+  "license": "MIT",
+  "main": "src/client.js",
+  "bin": {
+    "projectvi-client": "src/main.js"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@projectvi/shared": "0.2.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
