@@ -19,6 +19,7 @@
     "dev:master": "npm start -w master-server",
     "dev:fake": "npm run fake -w master-server",
     "dev:server": "npm start -w server",
+    "dev:bots": "npm run bots -w server --",
     "dev:registry": "npm run dev -w registry",
     "dev:launcher": "npm start -w launcher",
     "dist": "npm run dist -w launcher"

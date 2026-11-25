@@ -147,3 +147,15 @@ Server rules:
 - Nothing on this channel is reliable. Identity isn't verified yet: a player's only identifier is `session:<hex>`.
 - Clients should render others about 100 ms in the past and interpolate; `createInterpolator` in the same file
   does this.
+
+Client side. `packages/shared/sync-client.js` is the reference client: the bots (`npm run dev:bots`) use it, and the
+game client should behave the same way.
+
+- Resend `HELLO` every 500 ms, up to 10 times, with the same nonce.
+- Render others two snapshot intervals in the past (at least 100 ms).
+- Estimate the server clock as local time plus the largest (snapshot server time − local arrival time) of the last
+  40 snapshots: the packet that waited least.
+- Send `ROSTER_REQUEST` when a snapshot's roster version differs from the roster you have. Pages can arrive in any
+  order, and the answer may be for a newer version than the one asked for. Ask again after 1 s if a page is missing.
+- Drop a player missing from snapshots for 1 s (out of range or gone). Give up on the server after 10 s of silence.
+- Send `BYE` when leaving.

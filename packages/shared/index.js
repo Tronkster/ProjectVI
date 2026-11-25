@@ -4,5 +4,6 @@ module.exports = {
   ...require("./paths"),
   ...require("./manifest"),
   ...require("./registry"),
-  ...require("./sync")
+  ...require("./sync"),
+  ...require("./hash")
 };

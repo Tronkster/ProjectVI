@@ -221,4 +221,4 @@ const NATIVES = {
   "entities.delete": (core, resource, id) => core.entities.delete(Number(id))
 };
 
-module.exports = { ServerCore, PlayerRegistry, splitCommandLine };
+module.exports = { ServerCore, PlayerRegistry, splitCommandLine, DEFAULT_SPAWN };
