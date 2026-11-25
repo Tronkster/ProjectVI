@@ -128,7 +128,8 @@ GTA VI on PC means the Xbox Series version running through emulation, and it onl
 | Player sync: players, vehicles, host and characters | ✅ Server and reference client, tested with bots |
 | Reliable messages: chat, commands, notices, script events | ✅ Server and reference client, tested at 20% packet loss |
 | Time of day and weather | ✅ Server, scripts (C#), console and reference client |
-| **Game client: joining from inside the game** | ❌ Not started. Waiting for the game to render under the emulator |
+| Game client: a program beside the emulator, joining the server and driving the game through VIctory's bridge | ✅ Joins, syncs and leaves; the launcher starts it ([docs/client.md](docs/client.md)) |
+| **The game side: reading the player and showing others in GTA VI** | ❌ Needs the emulator's game operations, which need reverse engineering, and the game to render |
 
 ## How it works
 
@@ -205,6 +206,7 @@ That joins 20 bots that walk and drive near the spawn point, chat every 5 second
 
 ```
 launcher/          Electron desktop app
+client/            Game client: runs beside the emulator, joins the server, drives the game through the bridge
 master-server/     Server list, friends and favorites (Node, no dependencies)
 server/            Reference game server, and the bots (server/scripts/bots.js)
 scripting/dotnet/  C# scripting: SDK, script host and test helpers
@@ -238,7 +240,7 @@ Tag a version, for example `git tag v0.5.0 && git push --tags`. The Release work
 ## Roadmap
 
 1. **One world (milestone A).** Everyone in the same world as the story's characters, with the story switched off. Player and vehicle sync, roles, chat, events, time and weather are done; damage and join tickets are next.
-2. **The game client.** A module the emulator loads beside the game, running the same protocol. Blocked until the game renders under the emulator.
+2. **The game client.** A program beside the emulator that runs the same protocol and drives the game through the emulator's bridge ([docs/client.md](docs/client.md)). The client and bridge exist; the game operations behind the bridge wait for reverse engineering and for the game to render under the emulator.
 3. **A shared story (milestone B).** The host's game runs the story; mission characters, vehicles and events stream to the other players, and progress comes from the host's save.
 
 The full list, including the reverse-engineering work, is in [docs/roadmap.md](docs/roadmap.md).

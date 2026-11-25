@@ -7,6 +7,7 @@
     "packages/*",
     "launcher",
     "master-server",
+    "client",
     "server",
     "registry"
   ],

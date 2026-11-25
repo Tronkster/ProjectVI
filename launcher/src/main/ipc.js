@@ -2,6 +2,7 @@
 // own page and validates its arguments; the renderer is never trusted with paths or tokens.
 
 const { app, clipboard, dialog, ipcMain, safeStorage, shell } = require("electron");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -16,6 +17,12 @@ const { createModManager } = require("./mods");
 const { createUpdater } = require("./updater");
 
 const FOLDERS = ["data", "cache", "mods", "logs"];
+
+// The ProjectVI client's entry script. In an installed launcher it's unpacked next to app.asar (see "asarUnpack"
+// in package.json), so the launcher's own Node can run it as plain files.
+function clientEntry() {
+  return require.resolve("@projectvi/client/src/main.js").replace(/app\.asar(?=[\\/])/, "app.asar.unpacked");
+}
 
 function fromLauncher(event) {
   const url = event.senderFrame?.url || "";
@@ -265,14 +272,21 @@ function registerIpc(ctx) {
   handle("join:launch", async (serverId) => {
     const contentFile = join.clientManifestFor(serverId);
     const ticket = typeof serverId === "string" ? await auth.joinTicket(serverId) : "";
-    const result = await launchGame(store.get(), { serverId, contentFile, modsFile: mods.enabledListFile(), ticket }, () => {
+    // A fresh file each time: the emulator writes its bridge address there, and the client reads it.
+    const bridgeDir = path.join(getPaths().cache, "bridge");
+    fs.mkdirSync(bridgeDir, { recursive: true });
+    const bridgeFile = path.join(bridgeDir, `${Date.now()}-${crypto.randomBytes(4).toString("hex")}.json`);
+    const clientLog = path.join(getPaths().logs, "client.log");
+    const extra = { serverId, contentFile, modsFile: mods.enabledListFile(), ticket, bridgeFile, clientLog };
+    const result = await launchGame(store.get(), extra, () => {
       if (playingOn === serverId) {
         playingOn = "";
         reportPresence();
       }
-    });
+    }, { clientMain: clientEntry() });
+    if (result.clientError) logger.warn("The ProjectVI client didn't start", { error: result.clientError });
     if (result.ok) {
-      logger.info("Emulator started for a server", { server: serverId });
+      logger.info("Emulator started for a server", { server: serverId, client: !result.clientError });
       playingOn = serverId;
       reportPresence();
     }
