@@ -76,7 +76,9 @@ Node code and nothing is loaded into the game.
 - [x] The launcher starts it beside the emulator when joining, on its own Node.
 - [ ] The game operations themselves in VIctory's `victory-game` (`player.read`, `ped.*`, `vehicle.*`,
   `player.setModel`, `world.set`, `screen.*`). Each needs the reverse-engineering items above.
-- [ ] Running server client scripts (`client.lua` and UI files from resources) in the client.
+- [x] Running client scripts (Lua) from server resources and public mods, sandboxed ([client-scripting.md](client-scripting.md)).
+- [x] The overlay over the game: chat, notices, the player list and scripts' UI pages.
+- [ ] Scripts' `player` table filled from the game (needs `player.read` in VIctory).
 
 ## Server and protocol (no game needed)
 
@@ -95,6 +97,9 @@ Node code and nothing is loaded into the game.
 - [ ] Smaller packets (quantised positions and rotations) once the client exists and real traffic can be measured
 
 ## Launcher
+
+- [x] Host a game from the launcher: runs the server on this PC, opens the port with UPnP, Direct connect for friends.
+- [ ] Invite friends to a hosted game from the friends list.
 
 - [x] Pass the join ticket to the game (`PROJECTVI_TICKET`).
 - [ ] Show in-game presence to friends once the client exists.

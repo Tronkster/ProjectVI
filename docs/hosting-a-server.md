@@ -7,6 +7,22 @@
 - **Never put game files, encryption keys or emulator files in `resources/`.** Everything you list in `client_files` is sent to every player.
 - Only send content you have the rights to share.
 
+## Hosting from the launcher
+
+The quickest way to play with friends: **Host a game** in the launcher runs this server on your PC (on the
+launcher's own Node, nothing to install) and you join it with **Join my game**.
+
+- **Open the port on my router** asks your router to forward the port with UPnP and shows the address friends
+  type in **Direct connect**. The forwarding is removed when you stop. If your router has UPnP off, the page says
+  so: forward TCP and UDP for the port by hand, or play with friends on the same network through the address shown.
+- **List on the server browser** adds it to the public list. **Verified players only** needs listing too (join
+  tickets come from the master server, which only issues them for listed servers).
+- Your server lives in the launcher's data folder, under `hosting/`: `server.toml` (rewritten each time you
+  host) and `resources/`. **Resources folder** opens it; every folder in it is started. C# resources need the
+  ProjectVI script host, which a hosted server doesn't have yet.
+
+The rest of this page is about running a server yourself.
+
 ## What you need
 
 - Node 22.13 or newer

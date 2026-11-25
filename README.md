@@ -129,6 +129,8 @@ GTA VI on PC means the Xbox Series version running through emulation, and it onl
 | Reliable messages: chat, commands, notices, script events | ✅ Server and reference client, tested at 20% packet loss |
 | Time of day and weather | ✅ Server, scripts (C#), console and reference client |
 | Game client: a program beside the emulator, joining the server and driving the game through VIctory's bridge | ✅ Joins, syncs and leaves; the launcher starts it ([docs/client.md](docs/client.md)) |
+| Client scripts (Lua) and UI pages from server resources and mods, and an overlay with chat and the player list | ✅ Sandboxed; see [docs/client-scripting.md](docs/client-scripting.md) |
+| Host a game from the launcher, with UPnP and Direct connect | ✅ Runs the server on your PC |
 | **The game side: reading the player and showing others in GTA VI** | ❌ Needs the emulator's game operations, which need reverse engineering, and the game to render |
 
 ## How it works

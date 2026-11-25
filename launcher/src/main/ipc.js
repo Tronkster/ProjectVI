@@ -9,20 +9,28 @@ const path = require("node:path");
 const { validatePlayerName, suggestPlayerName, REPO_CONFIGURED, REPO_URL } = require("@projectvi/shared");
 const { createAuth, createTokenStore } = require("./auth");
 const { ORIGIN } = require("./protocol");
-const { fetchServers, pingServers, parseMasterUrl } = require("./servers");
+const { fetchServers, pingServers, parseMasterUrl, parseDirect } = require("./servers");
 const { launchGame } = require("./launch");
 const { dirSize, isFile, exists } = require("./files");
 const { createJoinManager } = require("./content");
 const { createModManager } = require("./mods");
 const { createUpdater } = require("./updater");
+const { HostManager } = require("./hosting");
+const upnp = require("./upnp");
 
 const FOLDERS = ["data", "cache", "mods", "logs"];
 
 // The ProjectVI client's entry script. In an installed launcher it's unpacked next to app.asar (see "asarUnpack"
 // in package.json), so the launcher's own Node can run it as plain files.
 function clientEntry() {
-  return require.resolve("@projectvi/client/src/main.js").replace(/app\.asar(?=[\\/])/, "app.asar.unpacked");
+  return unpacked(require.resolve("@projectvi/client/src/main.js"));
 }
+
+// Files the launcher's Node runs as separate processes live unpacked next to app.asar in an installed launcher.
+function unpacked(file) {
+  return file.replace(/app\.asar(?=[\\/])/, "app.asar.unpacked");
+}
+
 
 function fromLauncher(event) {
   const url = event.senderFrame?.url || "";
@@ -230,6 +238,32 @@ function registerIpc(ctx) {
   // The last list from the master server. Joins look servers up here, so the renderer
   // can only ever pick a server by id and never supply its own host or port.
   const knownServers = new Map();
+  const directServers = new Map(); // id -> server, added with Direct connect
+  // Hosting a game on this PC (hosting.js). Its server is joined through 127.0.0.1.
+  const hosting = new HostManager({
+    dataDir: getPaths().data,
+    serverMain: unpacked(require.resolve("projectvi-server/server.js")),
+    upnp,
+    logger
+  });
+  hosting.on("status", (status) => getWindow()?.webContents.send("host:status", status));
+  app.on("before-quit", () => {
+    hosting.stop();
+  });
+  handle("host:status", () => hosting.status());
+  handle("host:start", (settings) => hosting.start(settings && typeof settings === "object" ? settings : {}, { masterUrl: store.get().masterUrl }));
+  handle("host:stop", () => hosting.stop());
+  handle("host:openFolder", async () => {
+    fs.mkdirSync(hosting.resourcesDir, { recursive: true });
+    const error = await shell.openPath(hosting.resourcesDir);
+    return { ok: !error };
+  });
+  handle("servers:direct", (address) => {
+    const server = parseDirect(address);
+    if (!server) return { ok: false, error: "Type an address like 203.0.113.7:30120." };
+    directServers.set(server.id, server);
+    return { ok: true, id: server.id };
+  });
   handle("servers:list", async () => {
     const result = await fetchServers(store.get().masterUrl);
     if (result.ok) {
@@ -262,7 +296,7 @@ function registerIpc(ctx) {
   const join = createJoinManager({
     getPaths,
     getSettings: () => store.get(),
-    getServer: (id) => (typeof id === "string" ? knownServers.get(id) : undefined),
+    getServer: (id) => (typeof id === "string" ? knownServers.get(id) ?? hosting.serverFor(id) ?? directServers.get(id) : undefined),
     logger,
     onProgress: (progress) => getWindow()?.webContents.send("join:progress", progress)
   });
@@ -271,7 +305,8 @@ function registerIpc(ctx) {
   handle("join:cancel", () => join.cancel());
   handle("join:launch", async (serverId) => {
     const contentFile = join.clientManifestFor(serverId);
-    const ticket = typeof serverId === "string" ? await auth.joinTicket(serverId) : "";
+    // Our own hosted server is joined through 127.0.0.1, but the master server knows it by its public address.
+    const ticket = typeof serverId === "string" ? await auth.joinTicket(hosting.ticketIdFor(serverId)) : "";
     // A fresh file each time: the emulator writes its bridge address there, and the client reads it.
     const bridgeDir = path.join(getPaths().cache, "bridge");
     fs.mkdirSync(bridgeDir, { recursive: true });

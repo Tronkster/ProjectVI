@@ -22,7 +22,8 @@
     "@projectvi/client": "0.1.0",
     "@projectvi/shared": "0.2.0",
     "@projectvi/zip": "0.2.0",
-    "electron-updater": "6.8.12"
+    "electron-updater": "6.8.12",
+    "projectvi-server": "0.2.0"
   },
   "devDependencies": {
     "electron": "45.2.3",
@@ -39,7 +40,9 @@
     "files": [
       "src/**/*",
       "package.json",
-      "!**/*.test.js"
+      "!**/*.test.js",
+      "!node_modules/projectvi-server/test/**",
+      "!node_modules/projectvi-server/resources/**"
     ],
     "win": {
       "target": [
@@ -60,7 +63,10 @@
     },
     "asarUnpack": [
       "node_modules/@projectvi/client/**",
-      "node_modules/@projectvi/shared/**"
+      "node_modules/@projectvi/shared/**",
+      "node_modules/projectvi-server/**",
+      "node_modules/smol-toml/**",
+      "node_modules/wasmoon/**"
     ]
   }
 }

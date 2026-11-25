@@ -41,3 +41,11 @@ test("pingServers skips malformed targets", async () => {
   assert.deepEqual(result, {});
   assert.deepEqual(await pingServers("nope"), {});
 });
+
+test("Direct connect takes host:port and nothing else", () => {
+  const { parseDirect } = require("../src/main/servers");
+  assert.deepEqual(parseDirect(" 203.0.113.7:30120 "), { id: "203.0.113.7:30120", host: "203.0.113.7", port: 30120, name: "203.0.113.7:30120" });
+  assert.deepEqual(parseDirect("[::1]:30120"), { id: "[::1]:30120", host: "::1", port: 30120, name: "[::1]:30120" });
+  assert.equal(parseDirect("play.example.com:30120").host, "play.example.com");
+  for (const bad of ["", "203.0.113.7", "203.0.113.7:0", "203.0.113.7:70000", "http://x:1", "a b:1", "x:1/path", null]) assert.equal(parseDirect(bad), null, String(bad));
+});

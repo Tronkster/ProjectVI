@@ -416,3 +416,15 @@ h1 { margin: 0; font-size: 30px; font-weight: 800; font-stretch: 112%; letter-sp
 .danger-row .hint { display: block; margin-top: 2px; }
 .section-hint { margin: 0 0 6px; }
 .switch-row:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+
+/* Host a game */
+.host-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px; margin-top: 24px; align-items: start; }
+@media (max-width: 980px) { .host-grid { grid-template-columns: 1fr; } }
+.host-form { display: grid; gap: 18px; }
+.field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.host-status { padding: 4px 20px 20px; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--surface-2); }
+.host-status .detail-row:first-child { border-top: 0; }
+.host-status .copyable { cursor: copy; }
+.host-status .hint { padding-bottom: 10px; }
+.host-log summary { cursor: pointer; padding: 14px 0 8px; color: var(--muted); font-size: 14px; }
+.host-log pre { margin: 0; max-height: 240px; overflow: auto; padding: 10px; border-radius: 8px; background: var(--bg); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
