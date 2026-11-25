@@ -63,8 +63,8 @@ data tables, aren't covered.
 ## Script natives and the script system (25 Nov 2026)
 
 Goal was the script VM's native table (hash → handler), the native call context, and the VM's per-frame tick.
-**The native table was not found, and the evidence now suggests this build may not have one in the GTA V sense.**
-What was found, what was ruled out, and why.
+**How natives are registered and called is still an open question.** What was found, and what was searched for
+without result.
 
 ### Found: the game skeleton (RAGE `gameSkeleton`) and the script subsystems in it
 
@@ -96,37 +96,30 @@ The script subsystems are all there, with GTA V's names: `CTheScripts` (`0x24976
 of its vtable is a shared stub (`ret 0`, `ret 1`, `nullsub`); the only real code is the generic pool. In GTA V
 this store is where `.ysc` programs are loaded and their native hashes resolved to handlers.
 
-### Ruled out: a native table anywhere in the executable
+### Searched for without result: a GTA V-style native hash table
 
-Each of these would have found GTA V's or RDR2's layout:
+Each of these would have found GTA V's or RDR2's layout, and none matched:
 
 - registration calls `register(hash64, handler)` or `register(handler, hash32)`, called or tail-jumped (no
   registrar beyond the game skeleton, `atexit` and parser/reflection registrars);
 - a static array of {hash, handler} pairs, of handler pointers, or of 32-bit handler RVAs, at strides 8-32 bytes,
   in `.rdata` and `.data` (none; the long pointer arrays are vtables and the CRT initialiser table `0x14678F688`);
 - an encoded table (long high-entropy arrays: they are fonts, certificates and other data);
-- a bytecode interpreter: no function has both a 100-250-case opcode switch and a `call [table+idx*8]`, and no
-  function has the many indirect jumps of a threaded interpreter;
 - the `{fn, next}` linked lists built by static initialisers (e.g. `0x145E15980`, 1,618 entries, head
   `0x14ABCE390`) are lazy parser/type registrations, not natives;
 - `AMBIENT_SCRIPT_SLOT_%d` is audio (wave slots), not script threads.
 
-### What this suggests (unconfirmed)
+### Correction: scripts are not compiled into the executable
 
-rage9-re's notes on `script.rpf` fit the same picture: the whole archive is 4.3 MB, almost all of it structured
-data trees, plus one 334 KB encrypted entry. GTA V shipped tens of MB of script bytecode. Together with the empty
-`ScriptStore` and no native table, a likely explanation is that **most game scripts are compiled into the
-executable as native code** (the binary has 434,408 functions), so "natives" are ordinary C++ calls with no
-hash table to hook. If so, the FiveM model (hook natives, call them by hash) doesn't carry over directly; the client
-would instead hook the game's own functions for spawning, placing and moving peds/vehicles, found one by one.
+An earlier version of this section guessed that the game's scripts were compiled into the executable, based on the
+small top-level `script.rpf` (4.3 MB). That guess was wrong: the game folder also has
+`pack/story000/story000_script.rpf` (78 MB), which is where the script data lives. The game does have a script
+VM, and the absence of a GTA V-style hash table means natives are linked some other way, not that there are none.
 
-Not yet checked, and worth doing next:
+### Open
 
-- Confirm or refute the compiled-scripts idea at run time: once the title runs further under VIctory, see whether
-  anything is ever loaded through `ScriptStore` and whether the 334 KB blob is read.
-- Find the entity-creation functions directly (ped/vehicle pools and their factories) through the pool names and
-  model-info hashes already labelled in the database (`CVehicleModelInfo`, `PED`, `VEHICLE`).
-- The call-context question is open: no native call context exists to reuse if there are no natives.
+- How natives are linked and called, and the call context they read. Not documented here.
+- The per-frame hook point above (`CTheScripts` update) doesn't depend on that answer.
 
 ## Not done
 
