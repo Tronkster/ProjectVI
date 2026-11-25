@@ -9,7 +9,7 @@ There are two kinds of ProjectVI content:
 | Typical use | Game modes, jobs, server HUDs | Personal UI tweaks, visuals, sounds |
 | Guide | [hosting-a-server.md](hosting-a-server.md) | this page |
 
-> **Status:** the launcher can browse, install, update and turn mods on and off. Mods run once the ProjectVI client exists. The scripting API in the examples is planned and may change.
+> **Status:** the launcher can browse, install, update and turn mods on and off, and the ProjectVI client runs their Lua scripts and UI pages ([client-scripting.md](client-scripting.md)). What scripts can read about the player in-game is limited until the emulator can read the game ([client.md](client.md)).
 
 ## Rules
 

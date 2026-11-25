@@ -1,12 +1,12 @@
--- Shows ui/index.html as an overlay and feeds it the player's speed and money.
--- Planned API, may change.
+-- Shows ui/index.html over the game: your speed (when the game can report it) and how many players are on.
+-- API: docs/client-scripting.md.
 
 local hud = ui.overlay("ui/index.html")
 
 every(250, function()
-  local vehicle = player.vehicle
   hud:send("update", {
-    speed = vehicle and math.floor(vehicle.speed * 3.6) or 0,
-    money = player.money
+    -- nil until the emulator can read the player from the game: the page shows a dash then.
+    speed = player.speed and math.floor(player.speed * 3.6) or nil,
+    players = #players(),
   })
 end)

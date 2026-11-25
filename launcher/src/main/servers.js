@@ -82,4 +82,15 @@ async function pingServers(targets) {
   return Object.fromEntries(results);
 }
 
-module.exports = { parseMasterUrl, cleanServer, fetchServers, tcpPing, pingServers };
+// Addresses typed into Direct connect: host:port, with an IPv4, IPv6 ([::1]) or a hostname.
+const DIRECT_ADDRESS = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]{1,253}):(\d{1,5})$/;
+function parseDirect(text) {
+  const m = DIRECT_ADDRESS.exec(String(text || "").trim());
+  if (!m) return null;
+  const port = Number(m[2]);
+  if (port < 1 || port > 65535) return null;
+  const host = m[1].replace(/^\[|\]$/g, "");
+  return { id: `${m[1]}:${port}`, host, port, name: `${m[1]}:${port}` };
+}
+
+module.exports = { parseMasterUrl, cleanServer, fetchServers, tcpPing, pingServers, parseDirect };

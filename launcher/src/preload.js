@@ -42,7 +42,8 @@ contextBridge.exposeInMainWorld("launcher", {
   },
   servers: {
     list: invoke("servers:list"),
-    ping: invoke("servers:ping")
+    ping: invoke("servers:ping"),
+    direct: invoke("servers:direct")
   },
   game: {
     launch: invoke("game:launch")
@@ -75,6 +76,13 @@ contextBridge.exposeInMainWorld("launcher", {
     cacheSize: invoke("system:cacheSize"),
     clearCache: invoke("system:clearCache"),
     copyDiagnostics: invoke("system:copyDiagnostics")
+  },
+  host: {
+    status: invoke("host:status"),
+    start: invoke("host:start"),
+    stop: invoke("host:stop"),
+    openFolder: invoke("host:openFolder"),
+    onStatus: (callback) => ipcRenderer.on("host:status", (_event, status) => callback(status))
   },
   window: {
     minimize: () => ipcRenderer.send("window:minimize"),

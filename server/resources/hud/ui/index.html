@@ -6,13 +6,13 @@
 </head>
 <body>
   <div class="hud">
-    <span class="speed" id="speed">0</span><span class="unit">km/h</span>
-    <span class="money" id="money">$0</span>
+    <span class="speed" id="speed">–</span><span class="unit">km/h</span>
+    <span class="players" id="players"></span>
   </div>
   <script>
-    projectvi.on("update", ({ speed, money }) => {
-      document.getElementById("speed").textContent = speed;
-      document.getElementById("money").textContent = "$" + money.toLocaleString();
+    projectvi.on("update", ({ speed, players }) => {
+      document.getElementById("speed").textContent = speed ?? "–";
+      document.getElementById("players").textContent = players === 1 ? "1 player" : `${players} players`;
     });
   </script>
 </body>

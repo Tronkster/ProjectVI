@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; frame-src projectvi-ui:; img-src 'self' data:; connect-src 'none'">
+  <title>ProjectVI overlay</title>
+  <link rel="stylesheet" href="fonts/archivo/wdth.css">
+  <link rel="stylesheet" href="overlay.css">
+  <script type="module" src="js/overlay.js"></script>
+</head>
+<body>
+  <div id="pages"></div>
+
+  <section class="chat" id="chat" aria-label="Chat">
+    <ol class="chat-lines" id="chat-lines"></ol>
+    <form class="chat-input" id="chat-form" hidden>
+      <input id="chat-text" type="text" maxlength="500" autocomplete="off" spellcheck="false" placeholder="Say something, or /command">
+    </form>
+    <p class="hint" id="chat-hint">F6 chat · F7 players</p>
+  </section>
+
+  <section class="players" id="players" hidden aria-label="Players">
+    <header><span id="server-name"></span><span id="player-count"></span></header>
+    <ol id="player-list"></ol>
+  </section>
+
+  <div class="notices" id="notices" aria-live="polite"></div>
+</body>
+</html>

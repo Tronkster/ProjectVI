@@ -13,8 +13,19 @@ const ORIGIN = `${SCHEME}://${HOST}`;
 function registerScheme() {
   const { protocol } = require("electron");
   protocol.registerSchemesAsPrivileged([
-    { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } }
+    { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+    // Client scripts' UI pages in the overlay (ui-content.js): standard, so relative links work; nothing else.
+    { scheme: "projectvi-ui", privileges: { standard: true, secure: true } }
   ]);
+}
+
+// Serves projectvi-ui:// from the files the client registered (ui-content.js decides what exists).
+function serveUi(ui) {
+  const { protocol } = require("electron");
+  protocol.handle("projectvi-ui", async (request) => {
+    const { status, headers, body } = ui.respond(request.url);
+    return new Response(body, { status, headers });
+  });
 }
 
 function packageDir(name) {
@@ -65,4 +76,4 @@ function serveApp(rendererDir) {
   });
 }
 
-module.exports = { ORIGIN, registerScheme, serveApp, buildRoutes, resolveRequest };
+module.exports = { ORIGIN, registerScheme, serveApp, serveUi, buildRoutes, resolveRequest };

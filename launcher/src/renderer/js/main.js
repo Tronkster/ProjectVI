@@ -8,13 +8,15 @@ import { initFriends, renderFriends, refreshFriends } from "./views/friends.js";
 import { initMe, renderMe, refreshMe } from "./me.js";
 import { fill as fillSettings, initSettings, scrollToSection, updateCacheSize } from "./views/settings.js";
 import { initMods, loadMods, modsLoaded, renderMods } from "./views/mods.js";
+import { initHost, refreshHost } from "./views/host.js";
+import { openDialog } from "./ui/dialog.js";
 import { initProfile, renderProfile } from "./profile.js";
 import { initAccount, renderAccount, refreshAuth } from "./account.js";
 import { initUpdates } from "./updates.js";
 import { connect } from "./connect.js";
 import { showToast } from "./ui/toast.js";
 
-const VIEWS = ["servers", "favorites", "friends", "mods", "settings"];
+const VIEWS = ["servers", "favorites", "friends", "mods", "host", "settings"];
 const REFRESH_EVERY_MS = 30_000;
 
 // go("settings") or go("settings:game") to jump to a section.
@@ -30,6 +32,7 @@ function go(target) {
   $("content").scrollTop = 0;
   if (view === "mods" && !modsLoaded()) loadMods();
   if (view === "friends") refreshFriends();
+  if (view === "host") refreshHost();
   if (view === "settings") {
     updateCacheSize();
     if (section) scrollToSection(section);
@@ -59,6 +62,37 @@ function initWindowControls() {
     $("win-max").querySelector(".icon-max").hidden = maximized;
     $("win-max").querySelector(".icon-restore").hidden = !maximized;
     $("win-max").setAttribute("aria-label", maximized ? "Restore" : "Maximize");
+  });
+}
+
+// Joining a server that isn't in the list (a friend's hosted game) by its address.
+function initDirectConnect() {
+  $("direct-connect").addEventListener("click", async () => {
+    let id = null;
+    const ok = await openDialog({
+      title: "Direct connect",
+      html: '<div class="field"><label for="direct-address">Address</label><input id="direct-address" class="mono" placeholder="203.0.113.7:30120" spellcheck="false" autocomplete="off"></div><p class="hint err" id="direct-error" hidden></p>',
+      actions: [
+        { label: "Cancel", value: false },
+        {
+          label: "Join",
+          kind: "accent",
+          value: true,
+          validate: async (dlg) => {
+            const result = await api.servers.direct(dlg.querySelector("#direct-address").value);
+            if (result.ok) id = result.id;
+            else {
+              dlg.querySelector("#direct-error").textContent = result.error;
+              dlg.querySelector("#direct-error").hidden = false;
+            }
+            return result.ok;
+          }
+        }
+      ],
+      cancelValue: false,
+      onReady: (dlg) => dlg.querySelector("#direct-address").focus()
+    });
+    if (ok && id) connect(id, go);
   });
 }
 
@@ -131,6 +165,8 @@ async function start() {
   initAccount();
   initUpdates();
   initMods();
+  initHost((id) => connect(id, go));
+  initDirectConnect();
   initProfile(go);
   initMe();
   initFriends();

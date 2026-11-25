@@ -23,10 +23,23 @@ the emulator (`client/`, Node, shipped inside the launcher), not code loaded int
 4. When the game exits, VIctory sends `exit` and the client leaves the server. If the emulator closes the bridge
    or the server ends the session, the client stops too.
 
+## Client scripts and the overlay
+
+- The client runs the Lua scripts of the server's resources and the player's enabled mods, each in its own sandbox
+  ([client-scripting.md](client-scripting.md)).
+- The launcher starts the client with an IPC channel and shows an **overlay** over the game: a transparent,
+  always-on-top window on the primary display with chat (F6 to type), notices, the player list (F7) and the
+  scripts' UI pages. It ignores the mouse except while the chat box is open. The client sends it what to show;
+  everything is shown as text. Run by hand, the client has no overlay and writes chat and notices to its log.
+- Scripts' UI pages come from `projectvi-ui://p<n>/`, one opaque host per resource or mod serving only its own
+  files, with a Content Security Policy that allows no network, frames or forms, in iframes sandboxed to scripts.
+  They talk to their script only through `projectvi.on` / `projectvi.send`.
+
 ## The bridge (VIctory side)
 
-Implemented in VIctory, `crates/victory-bridge` (GPL-3.0), for now on the `feat/projectvi-bridge` branch of the
-fork https://github.com/Tronkster/VIctory, not in upstream VIctory. Newline-delimited JSON, one
+Implemented in VIctory, `crates/victory-bridge` (GPL-3.0), on the `feat/projectvi-bridge` branch of
+https://github.com/Tronkster/victory-nvidia-8gb, which is based on https://github.com/soldsawn/victory-nvidia-8gb
+(VIctory tuned for 8 GB NVIDIA GPUs). It isn't in either upstream yet. Newline-delimited JSON, one
 object per line, at most 64 KB:
 
 - Request: `{"id": 1, "op": "player.read", "args": {…}}`
