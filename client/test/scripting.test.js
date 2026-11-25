@@ -118,6 +118,7 @@ test("timers run, can be cancelled, and events reach handlers with their argumen
     assert.deepEqual(by("world"), [[18, "rain"]]);
     assert.deepEqual(rec.chats, ["hi all"]);
     assert.deepEqual(rec.notices, ["note"]);
+    assert.deepEqual(errors(rec), []);
   } finally {
     host.stop();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -147,6 +148,37 @@ test("runaway scripts are stopped, and other packages keep running", async () =>
     host.stop();
     fs.rmSync(bad.dir, { recursive: true, force: true });
     fs.rmSync(good.dir, { recursive: true, force: true });
+  }
+});
+
+// Regression: timer callbacks once went Lua -> JS -> Lua and every tick failed ("reading 'then'" of null),
+// so a HUD that ticked stopped itself after MAX_ERRORS ticks.
+test("a timer that keeps calling the API keeps running without errors", async () => {
+  const { pkg, dir } = makePackage("hud", {
+    "a.lua": `
+      local hud = ui.overlay("ui/hud.html")
+      ticks = 0
+      every(16, function()
+        ticks = ticks + 1
+        hud:send("players", #players())
+        hud:send("speed", player.speed)
+        notify(nil)
+        if ticks == ${MAX_ERRORS + 20} then server.emit("done", ticks) end
+      end)
+    `,
+    "ui/hud.html": "<p></p>"
+  });
+  const rec = recordingApi();
+  const host = new ScriptHost({ api: rec.api });
+  try {
+    await host.start([pkg]);
+    const end = Date.now() + 10000;
+    while (!rec.events.some((e) => e.name === "done") && Date.now() < end) await wait(50);
+    assert.deepEqual(errors(rec), []);
+    assert.deepEqual(rec.events.find((e) => e.name === "done")?.args, [MAX_ERRORS + 20]);
+  } finally {
+    host.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

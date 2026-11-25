@@ -24,6 +24,8 @@ const FEATURES = [
   { ops: ["screen.chat"], what: "chat on screen (it goes to the client log)" }
 ];
 
+// A chat line from someone the roster doesn't name yet (they just joined) waits this long for the roster.
+const CHAT_HOLD_MS = 1000;
 const vec = (v) => ({ x: Number(v?.x) || 0, y: Number(v?.y) || 0, z: Number(v?.z) || 0 });
 
 // The player state the game reported, as the sync protocol carries it. `vehicleId` is filled in by the caller
@@ -74,6 +76,8 @@ class GameClient extends EventEmitter {
     this.createSync = createSync;
     this.fetchInfo = fetchInfo;
     this.sync = null;
+    this.heldChat = []; // chat lines waiting for the roster to name who sent them, in order
+    this.heldChatTimer = null;
     this.unavailable = new Set(); // operations the emulator turned out not to support
     this.busy = false;
     this.lastStateAt = -Infinity;
@@ -144,10 +148,9 @@ class GameClient extends EventEmitter {
       this.scripts?.dispatch("notice", [text]);
     });
     sync.on("chat", (playerId, text) => {
-      const name = playerId === 0 ? "Server" : sync.players.get(playerId)?.name ?? `#${playerId}`;
-      this.show("screen.chat", { name, text }, `[chat] ${name}: ${text}`);
-      this.overlay.post({ t: "chat", name, text });
-      this.scripts?.dispatch("chat", [name, text, playerId]);
+      this.heldChat.push({ playerId, text });
+      this.releaseChat(false);
+      if (this.heldChat.length && !this.heldChatTimer) this.heldChatTimer = setTimeout(() => this.releaseChat(true), CHAT_HOLD_MS);
     });
     sync.on("event", (name, args) => this.scripts?.dispatch(name, args));
     sync.on("roster", (players) => this.onRoster(players));
@@ -208,7 +211,25 @@ class GameClient extends EventEmitter {
     return id;
   }
 
+  // Shows held chat lines in order, up to the first whose sender the roster doesn't name yet (all of them when
+  // `all`, with "#id" for anyone still unknown).
+  releaseChat(all) {
+    const known = (id) => id === 0 || this.sync.players.has(id);
+    while (this.heldChat.length && (all || known(this.heldChat[0].playerId))) {
+      const { playerId, text } = this.heldChat.shift();
+      const name = playerId === 0 ? "Server" : this.sync.players.get(playerId)?.name ?? `#${playerId}`;
+      this.show("screen.chat", { name, text }, `[chat] ${name}: ${text}`);
+      this.overlay.post({ t: "chat", name, text });
+      this.scripts?.dispatch("chat", [name, text, playerId]);
+    }
+    if (!this.heldChat.length) {
+      clearTimeout(this.heldChatTimer);
+      this.heldChatTimer = null;
+    }
+  }
+
   onRoster(players) {
+    if (this.heldChat.length) this.releaseChat(false);
     const before = this.rosterSeen ?? new Map();
     for (const [id, p] of players) if (!before.has(id) && id !== this.sync.playerId) this.scripts?.dispatch("playerJoined", [{ id, name: p.name }]);
     for (const [id, p] of before) if (!players.has(id)) this.scripts?.dispatch("playerLeft", [{ id, name: p.name }]);
@@ -376,6 +397,8 @@ class GameClient extends EventEmitter {
     if (this.stopped) return;
     this.stopped = true;
     this.log.info(`Leaving: ${reason}`);
+    clearTimeout(this.heldChatTimer);
+    this.heldChatTimer = null;
     this.scripts?.stop();
     this.overlay.post({ t: "end", reason });
     for (const id of [...this.peds.keys()]) this.removePed(id);

@@ -199,3 +199,42 @@ test("client scripts run from the server's resources: UI pages, events both ways
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a chat line that arrives before the roster names its sender waits for the roster, in order", async () => {
+  const { EventEmitter } = require("node:events");
+  const { SYNC_VERSION } = require("@projectvi/shared");
+  const sync = Object.assign(new EventEmitter(), {
+    players: new Map([[1, { id: 1, name: "Kai" }]]),
+    playerId: 1,
+    connect: async () => ({ playerId: 1, tickRate: 20 }),
+    close: async () => {},
+    flushReliable: () => {}
+  });
+  const b = await startBridgeDouble({});
+  const log = recordingLog();
+  const bridge = new Bridge({ port: b.port, token: b.token });
+  await bridge.connect();
+  const posted = [];
+  const overlay = { post: (m) => (posted.push(m), true), on: () => {} };
+  const client = new GameClient({ settings: { host: "127.0.0.1", port: 1, name: "Kai", ticket: "" }, bridge, log, overlay, scripts: false, createSync: () => sync, fetchInfo: async () => ({ sync: { version: SYNC_VERSION, port: 1 } }) });
+  const chat = () => posted.filter((m) => m.t === "chat").map((m) => `${m.name}: ${m.text}`);
+  try {
+    await client.start();
+    sync.emit("chat", 3, "hello from Ben"); // Ben just joined; the roster with him hasn't come yet
+    sync.emit("chat", 1, "hi"); // waits behind Ben's line
+    assert.deepEqual(chat(), []);
+    sync.players.set(3, { id: 3, name: "Ben" });
+    sync.emit("roster", sync.players);
+    assert.deepEqual(chat(), ["Ben: hello from Ben", "Kai: hi"]);
+    assert.ok(log.lines.some((l) => l.includes("[chat] Ben: hello from Ben")));
+
+    // With no roster naming them, the line still shows after a moment.
+    sync.emit("chat", 9, "ghost");
+    sync.emit("chat", 0, "server says");
+    await until(() => chat().length === 4);
+    assert.deepEqual(chat().slice(2), ["#9: ghost", "Server: server says"]);
+  } finally {
+    await client.stop("test over");
+    await b.close();
+  }
+});

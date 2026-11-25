@@ -59,9 +59,17 @@ require = function(name)
   return value
 end
 
-every = function(ms, fn) return js.timer(ms, fn, true) end
-after = function(ms, fn) return js.timer(ms, fn, false) end
-cancel = function(id) js.cancel(id) end
+-- Timer functions stay here, by id: a Lua function handed to JS and back comes back as a JS wrapper.
+local timer_fns = {}
+local function add_timer(ms, fn, rep)
+  if type(fn) ~= "function" then error("every/after(ms, function)", 3) end
+  local id = js.timer(ms, rep)
+  timer_fns[id] = fn
+  return id
+end
+every = function(ms, fn) return add_timer(ms, fn, true) end
+after = function(ms, fn) return add_timer(ms, fn, false) end
+cancel = function(id) timer_fns[id] = nil; js.cancel(id) end
 
 local handlers = {}
 on = function(name, fn)
@@ -108,7 +116,10 @@ __pv_ui_message = function(id, name, data)
     if not ok then js.error("UI message " .. name .. ": " .. tostring(err)) end
   end
 end
-__pv_call = function(fn)
+__pv_fire = function(id, once)
+  local fn = timer_fns[id]
+  if not fn then return end
+  if once then timer_fns[id] = nil end
   local ok, err = pcall(fn)
   if not ok then js.error(tostring(err)) end
 end
@@ -197,11 +208,13 @@ class ScriptHost {
       const n = Math.min(Number(packed.n) || 0, 64);
       return Array.from({ length: n }, (_, i) => fromLua(packed[i + 1]));
     };
-    lua.global.set("__pv", {
+    // wasmoon can't take a null back from a JS function, so none of these return one.
+    const noNull = (fns) => Object.fromEntries(Object.entries(fns).map(([k, fn]) => [k, (...a) => fn(...a) ?? undefined]));
+    lua.global.set("__pv", noNull({
       log: (message) => api.log(pkg, "info", String(message)),
       error: (message) => this.fail(run, String(message)),
       source: (file) => this.readSource(pkg, String(file)) ?? undefined,
-      timer: (ms, fn, repeat) => this.addTimer(run, ms, fn, repeat),
+      timer: (ms, repeat) => this.addTimer(run, ms, Boolean(repeat)),
       cancel: (id) => this.cancelTimer(run, id),
       emit: (name, packed) => this.dispatch(String(name), toArgs(packed)),
       server_emit: (name, packed) => api.sendServerEvent(String(name), toArgs(packed)),
@@ -217,13 +230,13 @@ class ScriptHost {
       },
       ui_send: (id, name, data) => api.uiSend(String(id), String(name), fromLua(data)),
       ui_show: (id, visible) => api.uiShow(String(id), Boolean(visible))
-    });
+    }));
     await this.runChunk(run, PRELUDE, "prelude");
     run.dispatch = lua.global.get("__pv_dispatch");
     run.uiMessage = lua.global.get("__pv_ui_message");
-    run.call = lua.global.get("__pv_call");
-    await this.runChunk(run, "__pv_dispatch = nil; __pv_ui_message = nil; __pv_call = nil", "prelude");
-    if (this.player) lua.global.set("player", toLua(this.player));
+    run.fire = lua.global.get("__pv_fire");
+    await this.runChunk(run, "__pv_dispatch = nil; __pv_ui_message = nil; __pv_fire = nil", "prelude");
+    lua.global.set("player", toLua(this.player ?? {})); // a table from the start: fields are nil until known
     return run;
   }
 
@@ -251,14 +264,13 @@ class ScriptHost {
     }
   }
 
-  addTimer(run, ms, fn, repeat) {
-    if (typeof fn !== "function") throw new Error("every/after need a function");
+  addTimer(run, ms, repeat) {
     if (run.timers.size >= MAX_TIMERS) throw new Error(`at most ${MAX_TIMERS} timers per package`);
     const delay = Math.max(MIN_TIMER_MS, Number(ms) || 0);
     const id = run.nextTimer++;
     const tick = () => {
       if (!repeat) run.timers.delete(id);
-      this.invoke(run, run.call, fn);
+      this.invoke(run, run.fire, id, !repeat);
     };
     run.timers.set(id, repeat ? setInterval(tick, delay) : setTimeout(tick, delay));
     return id;
