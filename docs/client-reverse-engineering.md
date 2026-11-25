@@ -60,6 +60,33 @@ A scan of `.text` for `cmp`/`mov` with a 32-bit constant that is a known joaat h
 (`Downloads\gta6-ida\hashscan.py`, `apply_names.py`, `hits.json`). Constants built in other ways, or held in
 data tables, aren't covered.
 
+## Script natives: first search (25 Nov 2026, not found yet)
+
+Goal: the script VM's native table (hash → handler), the call context natives read their arguments from, and
+the VM's per-frame tick. **None of these is located yet.** What static scans of `.text`/`.rdata`/`.data` ruled out,
+so the next attempt doesn't repeat them:
+
+- **No GTA V-style registration calls.** In GTA V natives were registered by thousands of calls
+  `register(hash64, handler)`. A scan for `mov r64, imm64` followed by `lea r, handler` and a `call` finds no
+  function called more than 74 times (that one is `atexit`). So natives are not registered one call each.
+- **No static (hash, handler) array.** No run of 200+ 16-byte pairs {64-bit non-pointer, pointer into `.text`}
+  in `.rdata` or `.data`, either order. The table is built at run time, or hashes and handlers are kept apart
+  (e.g. a sorted hash array plus a parallel handler array), or the hashes are 32-bit / transformed.
+- **Long arrays of code pointers exist** in `.rdata` (18 runs of 1,000-2,300 pointers, e.g. `0x1462102f0`,
+  `0x14650a6f0`); not yet checked whether they are vtables or a handler array. Worth checking first: a handler
+  array would be referenced from one place, and its entries would be small functions taking one pointer argument.
+- **Dense static-initialiser blocks** (e.g. `0x145c83140`, global list head `0x14abce390`) chain 16-byte nodes
+  {function, next} — these are lazy type/parser registrations (each function builds a descriptor once), not natives.
+- **Interpreter switch not identified.** Switches with 130-240 cases were listed (raw scan of `cmp reg, N; ja`);
+  the one checked (`0x14278c43f`, 132 cases) isn't the interpreter.
+- 1,050 functions start by reading `[rcx+10h]` — the GTA V `scrNativeCallContext` args field — too few and too
+  generic to be the native set by itself.
+
+Unsure / next steps: the in-game route is likely faster than more static scanning — once the title runs further
+under VIctory, break on reads of a known script (e.g. from `script.rpf` via rage9-re) and follow the interpreter's
+native opcode to the handler table at run time. Statically, the next check is the large `.rdata` pointer arrays
+above. Scan scripts are kept outside the repo (session scratchpad).
+
 ## Not done
 
 - No function in the game has been identified by name yet; the IDA database is outside the repo
