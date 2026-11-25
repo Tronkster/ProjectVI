@@ -1,6 +1,7 @@
 // Reports the server to the master server every 30 seconds, and signs off on shutdown.
 
-function startHeartbeat({ config, log, getPlayers = () => 0, intervalMs = 30_000 }) {
+// onListed(id): called after every successful heartbeat with the id the master server knows us by.
+function startHeartbeat({ config, log, getPlayers = () => 0, intervalMs = 30_000, onListed = () => {} }) {
   const base = config.master.url.replace(/\/+$/, "");
   let failing = false;
   let listed = false;
@@ -25,6 +26,8 @@ function startHeartbeat({ config, log, getPlayers = () => 0, intervalMs = 30_000
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
+      const answer = await res.json().catch(() => ({}));
+      onListed(answer.id);
       if (!listed) log(`Listed on the master server at ${base}.`);
       else if (failing) log("Master server reachable again. The server is listed.");
       listed = true;

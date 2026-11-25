@@ -15,6 +15,9 @@ public sealed record SentEvent(int? PlayerId, string Name, IReadOnlyList<JsonEle
 /// <summary>A line a script logged.</summary>
 public sealed record LogEntry(string Resource, LogLevel Level, string Message);
 
+/// <summary>A chat line a script sent with <c>Chat</c>: to one player (<see cref="PlayerId"/>), or to everyone (null).</summary>
+public sealed record ChatLine(int? PlayerId, string Text);
+
 /// <summary>A fake player you control from the test.</summary>
 public sealed class TestPlayer(Player player)
 {
@@ -91,6 +94,52 @@ public sealed class TestServer : IAsyncDisposable
 
     /// <summary>Sets where a player is, for scripts that ask.</summary>
     public void SetPosition(TestPlayer player, Vector3 position) => runtime.Positions[player.Id] = position;
+
+    /// <summary>Sets everything a player's client would report, for <c>Player.GetStateAsync</c>. Also sets their position.</summary>
+    public void SetState(TestPlayer player, PlayerState state)
+    {
+        runtime.States[player.Id] = state;
+        runtime.Positions[player.Id] = state.Position;
+    }
+
+    /// <summary>A state on foot at <paramref name="position"/>, full health, to start from with <c>with { ... }</c>.</summary>
+    public static PlayerState OnFoot(Vector3 position) =>
+        new(position, Vector3.Zero, 0, PlayerStateFlags.None, 0, 200, 0, 0, Vector3.Zero, 0, 0);
+
+    /// <summary>Sets a player's measured round trip, for <c>Player.GetPingAsync</c>.</summary>
+    public void SetPing(TestPlayer player, int milliseconds) => runtime.Pings[player.Id] = milliseconds;
+
+    /// <summary>Makes a player the host (the one whose game runs the story), or nobody with null.</summary>
+    public void SetHost(TestPlayer? player) => runtime.HostId = player?.Id ?? 0;
+
+    /// <summary>Gives a player a story character (model hash), for <c>Player.GetCharacterAsync</c>.</summary>
+    public void SetCharacter(TestPlayer player, uint model) => runtime.Characters[player.Id] = model;
+
+    /// <summary>Sets what the server knows about a vehicle, for <c>Entities.GetVehicleAsync</c>.</summary>
+    public void SetVehicle(VehicleState vehicle) => runtime.Vehicles[vehicle.Id] = vehicle;
+
+    /// <summary>Chat lines scripts sent with <c>Chat</c>.</summary>
+    public IReadOnlyList<ChatLine> ChatSent => runtime.Chat;
+
+    /// <summary>
+    /// Seats a player in a vehicle as the sync server would: updates their state and raises
+    /// <see cref="ServerEvents.PlayerEnteredVehicle"/> (after <see cref="ServerEvents.PlayerLeftVehicle"/> if they were in another seat).
+    /// </summary>
+    public async Task EnterVehicleAsync(TestPlayer player, int vehicleId, int seat = 0)
+    {
+        await LeaveVehicleAsync(player);
+        PlayerState state = runtime.States.GetValueOrDefault(player.Id) ?? OnFoot(runtime.Positions.GetValueOrDefault(player.Id));
+        SetState(player, state with { Flags = state.Flags | PlayerStateFlags.InVehicle, VehicleId = vehicleId, Seat = seat });
+        await EmitAsync(ServerEvents.PlayerEnteredVehicle, player.Player, vehicleId, seat);
+    }
+
+    /// <summary>Takes a player out of their vehicle and raises <see cref="ServerEvents.PlayerLeftVehicle"/>. Does nothing if they're on foot.</summary>
+    public async Task LeaveVehicleAsync(TestPlayer player)
+    {
+        if (runtime.States.GetValueOrDefault(player.Id) is not { IsInVehicle: true } state) return;
+        SetState(player, state with { Flags = state.Flags & ~PlayerStateFlags.InVehicle, VehicleId = 0, Seat = 0 });
+        await EmitAsync(ServerEvents.PlayerLeftVehicle, player.Player, state.VehicleId, state.Seat);
+    }
 
     /// <summary>Starts a resource made of one script class.</summary>
     public Task StartAsync<TScript>(string resource = "test", object? config = null) where TScript : Script =>

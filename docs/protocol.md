@@ -112,6 +112,7 @@ The file's bytes. Files are addressed by hash, so they can be cached forever.
 | `PROJECTVI_MASTER` | master server address |
 | `PROJECTVI_CONTENT` | path to the file from step 4 |
 | `PROJECTVI_MODS` | path to the enabled public mods list (see [making-mods.md](making-mods.md)) |
+| `PROJECTVI_TICKET` | a join ticket for the server (see "Join tickets" below), or empty |
 
 The launcher stores server content but never runs it. Running it is the ProjectVI client's job.
 
@@ -119,15 +120,15 @@ The launcher stores server content but never runs it. Running it is the ProjectV
 
 `GET /projectvi/info` includes `sync: { version, port, tickRate }` when sync is on. The format is defined in
 `packages/shared/sync.js`, which both sides use, and `packages/shared/test/sync-vectors.json` has an example packet
-of each kind for clients written in other languages. Every packet starts with `"PV"`, the sync version (3) and a
+of each kind for clients written in other languages. Every packet starts with `"PV"`, the sync version (4) and a
 type byte; numbers are little-endian, floats 32-bit, and packets stay under 1,200 bytes. A packet of another version
 is ignored.
 
 | Type | Direction | Contents |
 | --- | --- | --- |
-| `HELLO` 1 | client → server | nonce, name. Resent until answered; a repeat gets the same session |
+| `HELLO` 1 | client → server | nonce, name (8-bit length), join ticket (16-bit length, 0 for none; at most 900 bytes). Resent until answered; a repeat gets the same session |
 | `WELCOME` 2 | server → client | nonce, session, player id, tick rate, server time (ms) |
-| `REJECT` 3 | server → client | nonce, reason (bad name, server full) |
+| `REJECT` 3 | server → client | nonce, reason (bad name, server full, a ticket that doesn't check out) |
 | `STATE` 4 | client → server | session, sequence, client time, then a player state. Every tick |
 | `SNAPSHOT` 5 | server → client | tick, server time, roster version, then up to 19 × (player id, sequence, player state). Every tick, split over several packets if needed |
 | `ROSTER_REQUEST` 6 | client → server | session. Sent when a snapshot's roster version changes |
@@ -149,7 +150,8 @@ Flags: 1 in vehicle, 2 moving on foot, 4 aiming, 8 dead, 16 crouched, 32 jumping
 
 Vehicle state (48 bytes): model hash, position (x, y, z), rotation as a quaternion (x, y, z, w), velocity (x, y, z),
 health (16 bits), steering (signed byte: 127 full left, -127 full right), flags (1 engine on, 2 lights, 4 siren,
-8 horn, 16 destroyed). Models and weapons are joaat hashes of their names (`joaat` in `@projectvi/shared`).
+8 horn, 16 destroyed, 32 stays with the host). Models and weapons are joaat hashes of their names (`joaat` in
+`@projectvi/shared`).
 
 Server rules:
 
@@ -159,15 +161,31 @@ Server rules:
   states and 1,000 vehicle states a second per player; 5 `HELLO`s a second per IP; one `PING` every 200 ms.
 - Players only receive others, and vehicles, within `[sync] stream_radius` (500 m by default). A player silent for
   `timeout_seconds` (10) is dropped and sent `KICK`.
-- Only `RELIABLE` packets are resent when lost; everything else is replaced by the next tick's. Identity isn't
-  verified yet: a player's only identifier is `session:<hex>`.
+- Only `RELIABLE` packets are resent when lost; everything else is replaced by the next tick's.
+- A player's identifier comes from their join ticket (`discord:<id>` or `guest:<id>`). Without one, it's only
+  `session:<hex>`, which matches no `[permissions]` group. See "Join tickets".
+- Movement: between two accepted states a player can't move farther than 250 m/s allows, plus 20 m. A bigger jump
+  is refused; if the client keeps reporting the new place for 3 seconds, it's accepted, so a teleport the server
+  doesn't know about still resyncs. The first state after being dead is never a jump (respawns).
+- Seats: a claimed seat must be in a vehicle the server knows, at most seat 15, within 25 m of the vehicle, and not
+  taken (the driver's seat by another driver, any other by another player). An impossible claim is relayed as on
+  foot.
+- Refused jumps and seat claims raise `playerSuspicious` (`Player player, string kind, details`) for scripts, at most
+  once per kind per player every 5 seconds. `kind` is `teleport` (`{ distance, seconds }`) or `seat`
+  (`{ vehicle, seat, problem }`). The server only refuses the state; what else to do is up to scripts.
+- A player's seat changing raises `playerLeftVehicle` and/or `playerEnteredVehicle` (`Player player, int vehicleId,
+  int seat`). A player who leaves the server while seated gets `playerLeftVehicle` before `playerLeft`.
 - The round trip a client reports in `PING` is what scripts get from `player.ping`. It's for display: a client
   can report anything.
 
 Host and characters (milestone A: everyone in one world as the story's characters, story scripts off):
 
 - The player who joined first is the host. When the host leaves, the player who has been connected longest takes
-  over. Later, only the host's game will run the story, and mission characters and objects will stay with the host.
+  over. Later, only the host's game will run the story.
+- A vehicle can stay with the host: the host's game simulates it wherever it is, unless a player is driving it, and
+  it moves to the next host when the host leaves. It's never removed for being idle. The host's client sets this by
+  registering a vehicle with flag 32 (a mission's car); the flag is ignored from other players. Scripts set it with
+  `vehicle.setStaysWithHost`. Mission characters and objects will work the same way once they're synced.
 - The server gives out `[sync] characters` (`["lucia", "jason"]` by default) in join order: the first player gets
   the first character. A character freed by someone leaving goes to the earliest player without one. Players beyond
   the list get 0 and keep their own look.
@@ -190,6 +208,31 @@ Vehicles:
 - A player whose `STATE` has the in-vehicle flag, a vehicle id and seat 0 claims the driver's seat. The first claim
   of a free seat wins, and the driver controls the vehicle. An empty vehicle stays with its controller while they're
   within 150 m of it, then goes to the nearest player in range, or nobody.
+
+## Join tickets
+
+A join ticket proves to a game server who a player is. The master server signs it for one listed server; the
+launcher asks for one as it starts the game and passes it in `PROJECTVI_TICKET`; the client sends it in `HELLO`.
+
+| Method | Path | Body | Answer |
+| --- | --- | --- | --- |
+| `POST` 🔒 | `/api/join-ticket` | `{ serverId }` | `{ ticket, expiresAt }`. 404 if the server isn't on the list. 30 a minute per account |
+| `GET` | `/api/ticket-key` | | `{ algorithm: "Ed25519", publicKey, keyId }`. `publicKey` is SPKI DER in base64 |
+
+- A ticket is `v1.<payload>.<signature>`, both base64url. The payload is JSON: `aud` (the server's id on the master
+  server, `ip:port` as the master server sees it), `sub` (`discord:<id>` or `guest:<id>`), `name`, `iat`, `exp`
+  (two minutes later; Unix seconds) and `jti` (random). The signature is Ed25519 over the ASCII of `v1.<payload>`.
+- Any account works, guests included: the launcher uses the Discord login if there is one, otherwise the friends
+  guest account. The master server keeps its signing key in `data/ticket-key.pem` (or `TICKET_KEY_FILE`).
+- A game server fetches the key at start, and learns its own id from the heartbeat answer. It accepts a ticket only
+  if the signature is good, `aud` is its own id, it hasn't expired (30 s of clock difference allowed) and its `jti`
+  hasn't been used. So a server can't collect tickets and replay them on another server, and a copied ticket can't
+  join twice.
+- With a valid ticket, the player's identifier is `sub`, so `[permissions]` in `server.toml` apply. A player with
+  that identifier who is already on the server is replaced (a crash, a second PC).
+- A ticket that doesn't check out gets `REJECT` with the reason. No ticket is fine unless the server sets
+  `[sync] require_ticket = true`; the player then only has a session identifier. Unlisted servers (`[master] public =
+  false`) can't check tickets, because the master server only issues them for servers on its list.
 
 ## Reliable messages
 
@@ -234,6 +277,7 @@ Server rules for what clients send:
   client can't hand a script some other player.
 - **Events for players:** scripts emit them with a client target (one player or all). An event bigger than 16 KB
   isn't sent.
+- **Chat from scripts:** `chat.send` sends a line to one player or everyone, as `CHAT` with player id 0 (the server).
 - **Clock and weather:** the server sends `WORLD` to each player as they join (transition 0) and to everyone whenever
   the time, time scale or weather changes. The clock was `clock` at `serverTime` and keeps running at `scale`, so
   clients work out the current time themselves; nothing is sent while it simply runs.

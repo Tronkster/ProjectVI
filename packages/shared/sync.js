@@ -6,13 +6,16 @@
 // Numbers are little-endian. Floats are 32-bit. Nothing here is trusted: decoders return null for
 // anything malformed, and the server still checks values (positions, speeds, sequence numbers).
 
-const SYNC_VERSION = 3;
+const SYNC_VERSION = 4;
 const MAGIC_0 = 0x50; // "P"
 const MAGIC_1 = 0x56; // "V"
 const HEADER = 4;
 
 // Keeps packets under common internet MTUs once IP and UDP headers are added.
 const MAX_PACKET = 1200;
+
+// A join ticket is a few hundred bytes; this leaves room while keeping HELLO well inside one packet.
+const MAX_TICKET_BYTES = 900;
 
 const MSG = Object.freeze({
   HELLO: 1, // client -> server: join
@@ -57,7 +60,10 @@ const VEHICLE_FLAG = Object.freeze({
   LIGHTS: 2,
   SIREN: 4,
   HORN: 8,
-  DESTROYED: 16
+  DESTROYED: 16,
+  // Set by the host's client on a vehicle a mission created: the host's game keeps simulating it wherever it is.
+  // Ignored from other players. In VEHICLES, it tells clients the vehicle is the host's.
+  STAYS_WITH_HOST: 32
 });
 
 // Player: position, velocity, heading (7 floats), flags, model, health, armour, weapon, aim point (3 floats), vehicle id, seat
@@ -193,11 +199,16 @@ function readVehicle(buf, offset) {
 
 // ---- Encoders ----
 
-function encodeHello({ nonce, name }) {
+// ticket: the join ticket from the master server (docs/protocol.md, "Join tickets"), or "" without one.
+function encodeHello({ nonce, name, ticket = "" }) {
   const nameBytes = Buffer.byteLength(name, "utf8");
-  const buf = header(MSG.HELLO, HEADER + 4 + 1 + nameBytes);
+  const ticketBytes = Buffer.byteLength(ticket, "utf8");
+  if (nameBytes > 255) throw new Error("Player names are at most 255 bytes.");
+  if (ticketBytes > MAX_TICKET_BYTES) throw new Error(`Join tickets are at most ${MAX_TICKET_BYTES} bytes.`);
+  const buf = header(MSG.HELLO, HEADER + 4 + 1 + nameBytes + 2 + ticketBytes);
   buf.writeUInt32LE(nonce >>> 0, HEADER);
-  writeText(buf, HEADER + 4, name, 1);
+  const next = writeText(buf, HEADER + 4, name, 1);
+  writeText(buf, next, ticket, 2);
   return buf;
 }
 
@@ -470,8 +481,10 @@ function decode(buf) {
     case MSG.HELLO: {
       if (!at(5)) return null;
       const name = readText(buf, HEADER + 4, 1);
-      if (!name || name.next !== buf.length) return null;
-      return { type, nonce: buf.readUInt32LE(HEADER), name: name.text };
+      if (!name) return null;
+      const ticket = readText(buf, name.next, 2);
+      if (!ticket || ticket.next !== buf.length || ticket.text.length > MAX_TICKET_BYTES) return null;
+      return { type, nonce: buf.readUInt32LE(HEADER), name: name.text, ticket: ticket.text };
     }
     case MSG.WELCOME:
       if (buf.length !== HEADER + 15) return null;
@@ -684,6 +697,7 @@ function createInterpolator({ delayMs = 100, maxExtrapolateMs = 250, historySize
 
 module.exports = {
   SYNC_VERSION,
+  SYNC_MAX_TICKET: MAX_TICKET_BYTES,
   SYNC_MAX_PACKET: MAX_PACKET,
   SYNC_MSG: MSG,
   SYNC_FLAG: FLAG,

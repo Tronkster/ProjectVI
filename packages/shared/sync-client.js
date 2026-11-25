@@ -51,12 +51,14 @@ const CLOCK_WINDOW = 40; // snapshots kept for the server clock estimate: 2 s at
 //   "close" ({ reason, kicked })
 class SyncClient extends EventEmitter {
   // host, port: the server's sync address (GET /projectvi/info gives the port). name: the player name.
+  // ticket: the join ticket the launcher got from the master server (PROJECTVI_TICKET), or "" to join without.
   // now: a millisecond clock; tests pass their own.
   // lossRate: drops this share of packets both ways, to test over a bad network. 0 for real use.
   constructor({
     host,
     port,
     name,
+    ticket = "",
     helloIntervalMs = 500,
     helloAttempts = 10,
     timeoutMs = 10_000,
@@ -68,6 +70,7 @@ class SyncClient extends EventEmitter {
     this.host = host;
     this.port = port;
     this.name = name;
+    this.ticket = ticket;
     this.helloIntervalMs = helloIntervalMs;
     this.helloAttempts = helloAttempts;
     this.timeoutMs = timeoutMs;
@@ -128,7 +131,7 @@ class SyncClient extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const nonce = crypto.randomBytes(4).readUInt32LE(0);
-      const hello = encodeHello({ nonce, name: this.name });
+      const hello = encodeHello({ nonce, name: this.name, ticket: this.ticket });
       let attempts = 0;
       let timer = null;
       const sendHello = () => {

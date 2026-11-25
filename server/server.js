@@ -19,6 +19,7 @@ const { ResourceManager } = require("./src/core/resources");
 const { startConsole } = require("./src/core/console");
 const { DotnetRuntime, findDotnetHost } = require("./src/runtimes/dotnet");
 const { SyncServer } = require("./src/sync");
+const { TicketVerifier } = require("./src/tickets");
 
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -52,8 +53,12 @@ async function main() {
   server.listen(config.port, config.bind, () => log.info(`"${config.name}" is running on port ${config.port}.`));
 
   let sync = null;
+  let tickets = null;
   if (config.sync.enabled) {
-    sync = new SyncServer({ core, log, maxPlayers: config.maxPlayers, ...config.sync });
+    // Join tickets can only be checked on a listed server: the master server only issues them for servers on its list.
+    tickets = config.master.public ? new TicketVerifier({ masterUrl: config.master.url, log }) : null;
+    tickets?.loadKey();
+    sync = new SyncServer({ core, log, maxPlayers: config.maxPlayers, tickets, ...config.sync });
     try {
       await sync.listen(config.port, config.bind);
       log.info(`Player sync on UDP port ${config.port}, ${config.sync.tickRate} updates a second.`);
@@ -70,7 +75,15 @@ async function main() {
   for (const name of config.resources.start) await resources.start(name);
 
   const stopHeartbeat = config.master.public
-    ? startHeartbeat({ config, log: log.info, getPlayers: () => core.players.list().length })
+    ? startHeartbeat({
+      config,
+      log: log.info,
+      getPlayers: () => core.players.list().length,
+      onListed: (id) => {
+        tickets?.setServerId(id);
+        tickets?.loadKey(); // retried until the master server answers
+      }
+    })
     : null;
   if (!stopHeartbeat) log.info("Not listed on the master server ([master] public = false).");
 

@@ -48,3 +48,19 @@ test("buildLaunch ignores a server id with odd characters", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("buildLaunch passes a join ticket only if it looks like one", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pvi-launch-"));
+  const exe = path.join(dir, "emu.exe");
+  fs.writeFileSync(exe, "");
+  try {
+    const ticketFor = (ticket) => buildLaunch({ emulatorPath: exe }, { serverId: "1.2.3.4:30120", ticket }).env.PROJECTVI_TICKET;
+    assert.equal(ticketFor("v1.eyJhIjoxfQ.c2ln"), "v1.eyJhIjoxfQ.c2ln");
+    assert.equal(ticketFor(undefined), "");
+    assert.equal(ticketFor("v1.a b.c"), "");
+    assert.equal(ticketFor("v2.abc.def"), "");
+    assert.equal(ticketFor(`v1.${"a".repeat(1000)}.b`), "");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

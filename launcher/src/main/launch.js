@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const SERVER_ID = /^[\w.:\-[\]]{1,300}$/;
+const TICKET = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
 // Splits an argument template like `"{game}" --fullscreen` into an argv array, honoring quotes.
 function splitArgs(template) {
@@ -16,7 +17,7 @@ function splitArgs(template) {
 }
 
 // Works out what to run. Returns { ok: true, exe, args, cwd, env } or { ok: false, code, error }.
-// extra: { serverId, contentFile, modsFile } — files the ProjectVI client reads once it exists.
+// extra: { serverId, contentFile, modsFile, ticket } — what the ProjectVI client reads once it exists.
 function buildLaunch(settings, extra = {}) {
   const exe = String(settings.emulatorPath || "").trim();
   if (!exe) return { ok: false, code: "no-emulator", error: "Choose your emulator in Settings first." };
@@ -40,7 +41,9 @@ function buildLaunch(settings, extra = {}) {
       PROJECTVI_PLAYER: vars.name,
       PROJECTVI_MASTER: String(settings.masterUrl || ""),
       PROJECTVI_CONTENT: extra.contentFile || "",
-      PROJECTVI_MODS: extra.modsFile || ""
+      PROJECTVI_MODS: extra.modsFile || "",
+      // The join ticket from the master server (docs/protocol.md, "Join tickets"); "" without one.
+      PROJECTVI_TICKET: typeof extra.ticket === "string" && extra.ticket.length <= 900 && TICKET.test(extra.ticket) ? extra.ticket : ""
     }
   };
 }

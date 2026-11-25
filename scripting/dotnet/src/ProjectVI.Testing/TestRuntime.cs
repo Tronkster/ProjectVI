@@ -34,6 +34,12 @@ internal sealed class TestRuntime : IScriptRuntime
     public Dictionary<int, Vector3> Positions { get; } = [];
     public Dictionary<string, Dictionary<string, JsonElement>> Store { get; } = [];
     public List<Entity> Entities { get; } = [];
+    public Dictionary<int, PlayerState> States { get; } = [];
+    public Dictionary<int, int> Pings { get; } = [];
+    public Dictionary<int, uint> Characters { get; } = [];
+    public int HostId { get; set; }
+    public Dictionary<int, VehicleState> Vehicles { get; } = [];
+    public List<ChatLine> Chat { get; } = [];
 
     /// <summary>The simulated clock and weather. The clock doesn't run on its own here.</summary>
     public GameTime WorldTime { get; set; } = new(12, 0, 0);
@@ -156,6 +162,13 @@ internal sealed class TestRuntime : IScriptRuntime
             "player.notify" => Notify(a[0].GetInt32(), a[1].GetString() ?? ""),
             "player.kick" => Kick(a[0].GetInt32(), a[1].GetString() ?? ""),
             "player.position" => Positions.GetValueOrDefault(a[0].GetInt32()),
+            "player.state" => States.TryGetValue(a[0].GetInt32(), out PlayerState? state) ? state : null,
+            "player.ping" => Pings.TryGetValue(a[0].GetInt32(), out int ping) ? ping : null,
+            "player.isHost" => HostId == a[0].GetInt32(),
+            "player.character" => Characters.GetValueOrDefault(a[0].GetInt32()),
+            "vehicle.state" => Vehicles.GetValueOrDefault(a[0].GetInt32()),
+            "vehicle.setStaysWithHost" => SetStaysWithHost(a[0].GetInt32(), a[1].GetBoolean()),
+            "chat.send" => SendChat(a[0].GetInt32(), a[1].GetString() ?? ""),
             "store.get" => StoreOf(resource).TryGetValue(a[0].GetString()!, out JsonElement v) ? v : null,
             "store.set" => StoreSet(resource, a[0].GetString()!, a[1]),
             "store.delete" => StoreOf(resource).Remove(a[0].GetString()!),
@@ -187,6 +200,27 @@ internal sealed class TestRuntime : IScriptRuntime
     private bool StoreSet(string resource, string key, JsonElement value)
     {
         StoreOf(resource)[key] = value.Clone();
+        return true;
+    }
+
+    private bool SetStaysWithHost(int vehicleId, bool stays)
+    {
+        if (!Vehicles.TryGetValue(vehicleId, out VehicleState? vehicle)) throw new InvalidOperationException($"There's no vehicle with id {vehicleId}.");
+        Vehicles[vehicleId] = vehicle with { StaysWithHost = stays };
+        return true;
+    }
+
+    // Same rules as the server core's chat.send.
+    private bool SendChat(int playerId, string text)
+    {
+        string line = text.Trim();
+        if (line.Length == 0) throw new InvalidOperationException("Chat messages can't be empty.");
+        if (line.Length > 500) line = line[..500];
+        if (playerId != 0 && Services.Players.Get(playerId) is not { IsConnected: true })
+        {
+            throw new InvalidOperationException($"There's no player with id {playerId}.");
+        }
+        Chat.Add(new ChatLine(playerId == 0 ? null : playerId, line));
         return true;
     }
 

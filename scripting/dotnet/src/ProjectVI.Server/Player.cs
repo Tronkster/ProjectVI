@@ -49,9 +49,34 @@ public sealed class Player
     /// <summary>Disconnects the player with a reason they can read.</summary>
     public void Kick(string reason) => registry.FireNative("player.kick", Id, reason);
 
-    /// <summary>Where the player is. Simulated until the ProjectVI client exists.</summary>
+    /// <summary>Where the player is: the last position their client reported.</summary>
     public async Task<Vector3> GetPositionAsync() =>
-        (await registry.Runtime.CallNativeAsync(registry.ResourceForNatives, "player.position", [Id])).Deserialize<Vector3>(registry.Runtime.Json);
+        (await Call("player.position")).Deserialize<Vector3>(registry.Runtime.Json);
+
+    /// <summary>
+    /// Everything the player's client last reported: position, speed, heading, health, weapon, vehicle and seat.
+    /// Null until their client has sent anything (and for players added from the console).
+    /// </summary>
+    public async Task<PlayerState?> GetStateAsync()
+    {
+        JsonElement result = await Call("player.state");
+        return result.ValueKind == JsonValueKind.Null ? null : result.Deserialize<PlayerState>(registry.Runtime.Json);
+    }
+
+    /// <summary>The round trip to the player's game in milliseconds, or null before it's been measured.</summary>
+    public async Task<int?> GetPingAsync()
+    {
+        JsonElement result = await Call("player.ping");
+        return result.ValueKind == JsonValueKind.Number ? (int)Math.Round(result.GetDouble()) : null;
+    }
+
+    /// <summary>True if this player is the host: the player whose game runs the story for everyone.</summary>
+    public async Task<bool> IsHostAsync() => (await Call("player.isHost")).GetBoolean();
+
+    /// <summary>The story character (model hash) the server gave this player, or 0 if they keep their own look.</summary>
+    public async Task<uint> GetCharacterAsync() => (await Call("player.character")).GetUInt32();
+
+    private Task<JsonElement> Call(string native) => registry.Runtime.CallNativeAsync(registry.ResourceForNatives, native, [Id]);
 
     /// <inheritdoc />
     public override string ToString() => $"{Name} (#{Id})";

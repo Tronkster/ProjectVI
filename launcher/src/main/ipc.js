@@ -264,7 +264,8 @@ function registerIpc(ctx) {
   handle("join:cancel", () => join.cancel());
   handle("join:launch", async (serverId) => {
     const contentFile = join.clientManifestFor(serverId);
-    const result = await launchGame(store.get(), { serverId, contentFile, modsFile: mods.enabledListFile() }, () => {
+    const ticket = typeof serverId === "string" ? await auth.joinTicket(serverId) : "";
+    const result = await launchGame(store.get(), { serverId, contentFile, modsFile: mods.enabledListFile(), ticket }, () => {
       if (playingOn === serverId) {
         playingOn = "";
         reportPresence();

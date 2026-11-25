@@ -68,7 +68,8 @@ Natives or engine functions for each of these:
 - [ ] Port the sync protocol, tested against `packages/shared/test/sync-vectors.json`.
 - [ ] Port the reference client's logic (`packages/shared/sync-client.js`): joining, interpolation, vehicles and the
   reliable channel.
-- [ ] Read the launcher's `PROJECTVI_*` settings, and run the sync loop on the per-frame hook.
+- [ ] Read the launcher's `PROJECTVI_*` settings (including `PROJECTVI_TICKET`, sent in `HELLO`), and run the sync
+  loop on the per-frame hook.
 - [ ] Logging, and failing safely when something the client expects isn't found.
 
 ## Server and protocol (no game needed)
@@ -78,17 +79,18 @@ Natives or engine functions for each of these:
 - [x] Host and story characters
 - [x] Reliable channel: chat, `/commands`, notices, script events
 - [x] Server time of day and weather, pushed to every player
-- [ ] "Stays with the host" control for mission characters, cars and objects
-- [ ] Join tickets: the master server signs a ticket, the launcher passes it to the game, and the server checks it in
+- [x] "Stays with the host" control for cars: the host's client or a script marks a vehicle, and the host's game keeps it
+- [ ] The same for mission characters and objects, once they're synced (needs how missions create them)
+- [x] Join tickets: the master server signs a ticket, the launcher passes it to the game, and the server checks it in
   `HELLO`, so real players get their Discord identifiers and admin permissions work
 - [ ] Damage: the shooter reports a hit, the server checks it, and the victim's client applies it
-- [ ] A typed C# API for player state, ping, vehicles (with enter and exit events) and chat
-- [ ] Server-side checks against teleporting and impossible seat claims
+- [x] A typed C# API for player state, ping, vehicles (with enter and exit events) and chat
+- [x] Server-side checks against teleporting and impossible seat claims (`playerSuspicious` for scripts)
 - [ ] Smaller packets (quantised positions and rotations) once the client exists and real traffic can be measured
 
 ## Launcher
 
-- [ ] Pass the join ticket to the game.
+- [x] Pass the join ticket to the game (`PROJECTVI_TICKET`).
 - [ ] Show in-game presence to friends once the client exists.
 
 ## Housekeeping

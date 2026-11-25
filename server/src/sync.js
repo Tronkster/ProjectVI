@@ -20,6 +20,7 @@ const crypto = require("node:crypto");
 const {
   SYNC_MSG,
   SYNC_FLAG,
+  SYNC_VEHICLE_FLAG,
   SNAPSHOT_MAX_ENTRIES,
   VEHICLES_MAX_ENTRIES,
   encodeWelcome,
@@ -52,6 +53,16 @@ const MAX_STATES_PER_SECOND = 90; // clients send at the tick rate; this leaves 
 // A client reports every vehicle it controls, so this allows for a car park's worth at 20 a second.
 const MAX_VEHICLE_STATES_PER_SECOND = 1000;
 const HELLOS_PER_SECOND_PER_IP = 5;
+// Movement checks. A player can't cover more than MAX_SPEED (plus a margin for timing) between two states. A bigger
+// jump is held back; if the client keeps reporting the new place for TELEPORT_RESYNC_MS, it's accepted anyway, so a
+// teleport the server doesn't know about (a game respawn, a script on the client) still ends up in sync. Coming
+// back to life is never a jump: the game puts dead players somewhere else.
+const TELEPORT_MARGIN = 20; // metres
+const TELEPORT_RESYNC_MS = 3000;
+// Seat checks: a claimed seat must be in a vehicle the server knows, close to the player, and not taken.
+const MAX_SEAT = 15;
+const SEAT_REACH = 25; // metres from the vehicle's reported position; buses are long and positions lag a little
+const SUSPICIOUS_EVERY_MS = 5000; // at most one playerSuspicious event per kind per player this often
 const MIN_PING_INTERVAL_MS = 200;
 // Chat and events are limited by token buckets: a steady rate, plus room for a burst. Reliable messages held up
 // by a lost packet arrive together once it's resent, so a plain per-second count would drop lines from a client
@@ -126,8 +137,12 @@ class SyncServer {
     vehicleHandover = 150,
     vehicleIdleSeconds = 60,
     maxVehiclesPerPlayer = 8,
+    tickets = null,
+    requireTicket = false,
     now = () => Date.now()
   }) {
+    this.tickets = tickets; // TicketVerifier, or null when tickets can't be checked (an unlisted server)
+    this.requireTicket = requireTicket;
     this.core = core;
     this.log = log;
     this.tickRate = tickRate;
@@ -159,6 +174,17 @@ class SyncServer {
       for (const s of [...this.sessions.values()]) this.queue(s, payload);
     };
     core.world.on("change", this.onWorldChange);
+    // chat.send from scripts: one player, or everyone with 0. Player id 0 on the wire means "the server".
+    this.chatSink = (playerId, text) => {
+      const buf = encodeChat({ playerId: 0, text });
+      if (playerId) {
+        const s = this.sessionOf(playerId);
+        if (s) this.queue(s, buf);
+      } else {
+        for (const s of [...this.sessions.values()]) this.queue(s, buf);
+      }
+    };
+    core.chatSink = this.chatSink;
   }
 
   serverTime() {
@@ -184,6 +210,7 @@ class SyncServer {
   close() {
     clearInterval(this.timer);
     if (this.core.bus.sendToClients === this.sendToClients) this.core.bus.sendToClients = null;
+    if (this.core.chatSink === this.chatSink) this.core.chatSink = null;
     this.core.world.off("change", this.onWorldChange);
     for (const s of [...this.sessions.values()]) this.drop(s, "Server shutting down", { kick: true });
     return new Promise((resolve) => (this.socket ? this.socket.close(resolve) : resolve()));
@@ -221,7 +248,20 @@ class SyncServer {
     else if (msg.type === SYNC_MSG.BYE) this.drop(s, "Left");
   }
 
-  onHello({ nonce, name }, { address, port }) {
+  // Works out who a joining player is. Returns { identifiers } or { error } to send back in REJECT.
+  identify(ticket, session) {
+    const sessionOnly = { identifiers: [`session:${session.toString(16)}`] };
+    if (!ticket) {
+      return this.requireTicket ? { error: "This server only lets in players who join from the ProjectVI launcher." } : sessionOnly;
+    }
+    if (!this.tickets?.ready) {
+      return this.requireTicket ? { error: "This server can't check join tickets right now. Try again in a minute." } : sessionOnly;
+    }
+    const checked = this.tickets.verify(ticket);
+    return checked.ok ? { identifiers: [checked.identifier] } : { error: checked.error };
+  }
+
+  onHello({ nonce, name, ticket }, { address, port }) {
     const second = Math.floor(this.now() / 1000);
     const budget = this.helloBudget.get(address);
     if (budget?.second === second && budget.count >= HELLOS_PER_SECOND_PER_IP) return;
@@ -237,11 +277,21 @@ class SyncServer {
 
     const checked = validatePlayerName(name);
     if (!checked.ok) return this.send(encodeReject({ nonce, reason: `Name not allowed: ${checked.error}` }), address, port);
-    if (this.core.players.list().length >= this.maxPlayers) return this.send(encodeReject({ nonce, reason: "The server is full." }), address, port);
 
     let session;
     do session = crypto.randomBytes(4).readUInt32LE(0);
     while (session === 0 || this.sessions.has(session));
+
+    const who = this.identify(ticket, session);
+    if (who.error) return this.send(encodeReject({ nonce, reason: who.error }), address, port);
+    // A verified player joining again (a crash, a second PC) replaces their old session.
+    for (const other of [...this.sessions.values()]) {
+      const p = this.core.players.get(other.playerId);
+      if (p && !who.identifiers[0].startsWith("session:") && p.identifiers.includes(who.identifiers[0])) {
+        this.drop(other, "You joined again from somewhere else.", { kick: true });
+      }
+    }
+    if (this.core.players.list().length >= this.maxPlayers) return this.send(encodeReject({ nonce, reason: "The server is full." }), address, port);
 
     const record = {
       session,
@@ -251,6 +301,8 @@ class SyncServer {
       lastSeen: this.now(),
       lastSeq: null,
       state: null,
+      stateAt: 0,
+      jumpSince: null,
       budget: { second, count: 0 },
       vehicleBudget: { second, count: 0 },
       localVehicles: new Map(), // the client's local id -> vehicle id, for vehicles it registered
@@ -268,8 +320,9 @@ class SyncServer {
         if (this.sessions.has(session)) this.drop(record, reason, { kick: true, fromCore: true });
       }
     };
-    // Identity isn't verified yet (no login on this channel), so the only identifier is the session.
-    const player = this.core.addPlayer({ name: checked.name, identifiers: [`session:${session.toString(16)}`], connection });
+    // With a valid join ticket, the player's identifier is their verified Discord or guest id; without one, it's
+    // just the session, which matches no [permissions] group.
+    const player = this.core.addPlayer({ name: checked.name, identifiers: who.identifiers, connection });
     record.playerId = player.id;
     this.sessions.set(session, record);
     this.byPlayer.set(player.id, session);
@@ -279,21 +332,94 @@ class SyncServer {
     this.send(encodeWelcome({ nonce, session, playerId: player.id, tickRate: this.tickRate, serverTime: this.serverTime() }), address, port);
   }
 
-  onState(s, { seq, state }) {
+  onState(s, { seq, state: reported }) {
     const second = Math.floor(this.now() / 1000);
     if (s.budget.second !== second) s.budget = { second, count: 0 };
     if (++s.budget.count > MAX_STATES_PER_SECOND) return;
     if (s.lastSeq !== null && !seqNewer(seq, s.lastSeq)) return; // late or repeated: a newer one already arrived
-    if (!validState(state)) return;
+    if (!validState(reported)) return;
+    if (!this.movementAllowed(s, reported)) return;
+    const state = this.checkSeat(s, reported);
 
+    const before = s.state;
     s.lastSeq = seq;
+    s.stateAt = this.now();
     s.state = { ...state, heading: ((state.heading % 360) + 360) % 360, model: this.characterOf(s.playerId) || state.model };
     const player = this.core.players.get(s.playerId);
     if (player) {
       player.position = { ...s.state.position };
       player.sync = s.state;
     }
-    this.updateDriver(s, state);
+    this.updateDriver(s, s.state);
+    this.seatEvents(s, before, s.state);
+  }
+
+  // playerLeftVehicle / playerEnteredVehicle (player, vehicleId, seat) when a player's seat changes. Moving to
+  // another seat in the same vehicle is a leave and an enter.
+  seatEvents(s, before, after) {
+    const seat = (st) => (st && (st.flags & SYNC_FLAG.IN_VEHICLE) ? `${st.vehicleId}:${st.seat}` : "");
+    if (seat(before) === seat(after)) return;
+    const player = { $player: s.playerId };
+    if (seat(before)) this.core.bus.emit("playerLeftVehicle", [player, before.vehicleId, before.seat]);
+    if (seat(after)) this.core.bus.emit("playerEnteredVehicle", [player, after.vehicleId, after.seat]);
+  }
+
+  // Tells scripts a client reported something it shouldn't be able to: playerSuspicious(player, kind, details).
+  // kind is "teleport" or "seat". Scripts decide what to do (log it, warn, kick); the server only refuses the state.
+  suspicious(s, kind, details) {
+    const now = this.now();
+    s.suspiciousAt ??= {};
+    if (now - (s.suspiciousAt[kind] ?? -Infinity) < SUSPICIOUS_EVERY_MS) return;
+    s.suspiciousAt[kind] = now;
+    const player = this.core.players.get(s.playerId);
+    if (!player) return;
+    this.log.warn(`${player.name} (#${player.id}): ${kind} ${JSON.stringify(details)}`);
+    this.core.bus.emit("playerSuspicious", [{ $player: player.id }, kind, details]);
+  }
+
+  // False if this state moves the player farther than they could have gone since the last accepted one.
+  movementAllowed(s, state) {
+    const now = this.now();
+    if (!s.state || (s.state.flags & SYNC_FLAG.DEAD)) {
+      s.jumpSince = null;
+      return true;
+    }
+    const seconds = Math.max(0.05, (now - s.stateAt) / 1000);
+    const distance = Math.sqrt(distanceSquared(state.position, s.state.position));
+    if (distance <= MAX_SPEED * seconds + TELEPORT_MARGIN) {
+      s.jumpSince = null;
+      return true;
+    }
+    if (s.jumpSince == null) s.jumpSince = now;
+    if (now - s.jumpSince < TELEPORT_RESYNC_MS) {
+      this.suspicious(s, "teleport", { distance: Math.round(distance), seconds: Math.round(seconds * 100) / 100 });
+      return false;
+    }
+    s.jumpSince = null; // kept reporting it: accept the new place
+    return true;
+  }
+
+  // Returns the state to keep: the reported one, or a copy on foot if the seat it claims isn't possible.
+  checkSeat(s, state) {
+    if (!(state.flags & SYNC_FLAG.IN_VEHICLE)) return state;
+    const vehicle = this.core.entities.get(state.vehicleId);
+    let problem = null;
+    if (vehicle?.kind !== "vehicle") problem = "no such vehicle";
+    else if (state.seat > MAX_SEAT) problem = "no such seat";
+    else if (vehicle.position && distanceSquared(vehicle.position, state.position) > SEAT_REACH * SEAT_REACH) problem = "too far from the vehicle";
+    else if (state.seat === 0 && vehicle.driver && vehicle.driver !== s.playerId && this.byPlayer.has(vehicle.driver)) problem = "someone else is driving";
+    else {
+      for (const other of this.sessions.values()) {
+        const o = other.state;
+        if (other !== s && o && (o.flags & SYNC_FLAG.IN_VEHICLE) && o.vehicleId === state.vehicleId && o.seat === state.seat) {
+          problem = "the seat is taken";
+          break;
+        }
+      }
+    }
+    if (!problem) return state;
+    this.suspicious(s, "seat", { vehicle: state.vehicleId, seat: state.seat, problem });
+    return { ...state, flags: state.flags & ~SYNC_FLAG.IN_VEHICLE, vehicleId: 0, seat: 0 };
   }
 
   // Seat 0 is the driver's. The first player to claim a free driver's seat gets it, and with it control.
@@ -334,6 +460,8 @@ class SyncServer {
         if (registered >= this.maxVehiclesPerPlayer) return;
         vehicle = this.core.registerVehicle(s.playerId, state.model, { position: state.position, rotation: normalise(state.rotation) });
         vehicle.localId = localId;
+        // Only the host can hand a vehicle to the host role (a mission's car); it's ignored from anyone else.
+        if ((state.flags & SYNC_VEHICLE_FLAG.STAYS_WITH_HOST) && s.playerId === this.hostId) vehicle.staysWithHost = true;
         vehicle.lastNear = this.now();
         s.localVehicles.set(localId, vehicle.id);
         this.setController(vehicle, s.playerId);
@@ -351,7 +479,8 @@ class SyncServer {
     vehicle.velocity = { ...state.velocity };
     vehicle.health = state.health;
     vehicle.steering = state.steering;
-    vehicle.flags = state.flags;
+    // The stays-with-host flag is the server's to set; what the client sends for it is ignored.
+    vehicle.flags = (state.flags & ~SYNC_VEHICLE_FLAG.STAYS_WITH_HOST) | (vehicle.staysWithHost ? SYNC_VEHICLE_FLAG.STAYS_WITH_HOST : 0);
   }
 
   onPing(s, { clientTime, rtt }) {
@@ -503,12 +632,17 @@ class SyncServer {
         }
       }
       if (nearest || vehicle.lastNear === null) vehicle.lastNear = now;
-      if (vehicle.owner === null && vehicle.player !== null && now - vehicle.lastNear > this.vehicleIdleMs) {
+      if (vehicle.owner === null && vehicle.player !== null && !vehicle.staysWithHost && now - vehicle.lastNear > this.vehicleIdleMs) {
         this.core.entities.delete(vehicle.id);
         continue;
       }
       if (vehicle.driver) {
         this.setController(vehicle, vehicle.driver);
+        continue;
+      }
+      // A mission's vehicle stays with the host wherever it is, and follows the host role to the next player.
+      if (vehicle.staysWithHost) {
+        this.setController(vehicle, this.byPlayer.has(this.hostId) ? this.hostId : 0);
         continue;
       }
       const current = vehicle.controller ? this.sessionOf(vehicle.controller) : null;
@@ -549,7 +683,15 @@ class SyncServer {
         .map((v) => ({
           vehicleId: v.id,
           controller: v.controller,
-          state: { model: v.hash, position: v.position, rotation: v.rotation, velocity: v.velocity, health: v.health, steering: v.steering, flags: v.flags }
+          state: {
+            model: v.hash,
+            position: v.position,
+            rotation: v.rotation,
+            velocity: v.velocity,
+            health: v.health,
+            steering: v.steering,
+            flags: (v.flags & ~SYNC_VEHICLE_FLAG.STAYS_WITH_HOST) | (v.staysWithHost ? SYNC_VEHICLE_FLAG.STAYS_WITH_HOST : 0)
+          }
         }));
       for (const chunk of chunks(nearVehicles, VEHICLES_MAX_ENTRIES)) {
         this.send(encodeVehicles({ tick: this.tick, serverTime, entries: chunk }), viewer.address, viewer.port);
@@ -566,6 +708,10 @@ class SyncServer {
     this.byPlayer.delete(s.playerId);
     this.assignRoles();
     this.rosterVersion = (this.rosterVersion + 1) & 0xffff;
+    // Scripts hear they left their seat while the player still exists (a kick from a script removes them first).
+    if (!fromCore && s.state && (s.state.flags & SYNC_FLAG.IN_VEHICLE)) {
+      this.core.bus.emit("playerLeftVehicle", [{ $player: s.playerId }, s.state.vehicleId, s.state.seat]);
+    }
     // Their vehicles get a new controller on the next tick.
     for (const v of this.vehicles()) if (v.driver === s.playerId) v.driver = 0;
     if (kick) this.send(encodeKick({ reason }), s.address, s.port);
