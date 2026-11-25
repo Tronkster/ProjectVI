@@ -24,6 +24,8 @@ start = ["jobs", "welcome", "hud"]
 # stream_radius = 500     # metres: players farther apart than this don't see each other
 # timeout_seconds = 10    # a player who sends nothing for this long is dropped
 # characters = ["lucia", "jason"]  # story characters, given out in join order; later players keep their own look
+# require_ticket = false  # true: only players with a join ticket from the master server (verified Discord or guest
+#                         # identity) can join. Needs [master] public = true, since tickets are only issued for listed servers
 
 [world]
 # The in-game clock and weather, the same for every player. Scripts can change both.

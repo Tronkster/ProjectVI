@@ -91,6 +91,19 @@ client_files = ["client.lua", "ui/*"]
 
 File hashes are cached in `.projectvi/hash-cache.json`, so restarts stay fast with large resources.
 
+## Who players are
+
+Players who join from the launcher bring a join ticket from the master server, so the server knows their Discord or
+guest identifier and `[permissions]` work. That needs the server on the list (`[master] public = true`). To turn away
+players without a ticket, set:
+
+```toml
+[sync]
+require_ticket = true
+```
+
+Without it, players with no ticket can still join, with no permissions.
+
 ## Opening your server to the internet
 
 1. Forward port `30120`, or whatever you set, for both TCP and UDP on your router to the server's PC.

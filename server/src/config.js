@@ -93,7 +93,7 @@ function validateConfig(raw) {
     master: { url: masterUrl, public: m.public !== false },
     resources: { start: [...new Set(start)] },
     world: { time, timeScale, weather, weatherCycle: Array.isArray(weatherCycle) ? weatherCycle : [], weatherMinutes },
-    sync: { enabled: sy.enabled !== false, tickRate, streamRadius, timeoutSeconds, characters: Array.isArray(characters) ? characters.map((c) => String(c).trim()) : [] },
+    sync: { enabled: sy.enabled !== false, requireTicket: sy.require_ticket === true, tickRate, streamRadius, timeoutSeconds, characters: Array.isArray(characters) ? characters.map((c) => String(c).trim()) : [] },
     scripting: {
       dotnetHost: text(sc.dotnet_host, 1024),
       watch: sc.watch !== false,

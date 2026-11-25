@@ -21,6 +21,7 @@ public abstract class ServerScript : Script
     private StoreImpl? store;
     private EntitiesImpl? entities;
     private WorldImpl? world;
+    private ChatImpl? chat;
 
     private ServerServices Services => Context.Runtime.Service<ServerServices>();
 
@@ -41,6 +42,9 @@ public abstract class ServerScript : Script
 
     /// <summary>The in-game clock and weather, the same for every player.</summary>
     public IWorld World => world ??= new WorldImpl(Context);
+
+    /// <summary>Chat lines from the server. Players' own chat arrives as <see cref="ServerEvents.PlayerChat"/>.</summary>
+    public IChat Chat => chat ??= new ChatImpl(Context);
 }
 
 /// <summary>Server-side events.</summary>

@@ -19,6 +19,7 @@
   "dependencies": {
     "@fontsource-variable/archivo": "5.3.0",
     "@fontsource/jetbrains-mono": "5.3.0",
+    "@projectvi/client": "0.1.0",
     "@projectvi/shared": "0.2.0",
     "@projectvi/zip": "0.2.0",
     "electron-updater": "6.8.12"
@@ -44,7 +45,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "src/assets/icon.png"
@@ -54,6 +57,10 @@
       "perMachine": false,
       "artifactName": "ProjectVI-Setup-${version}.${ext}",
       "shortcutName": "ProjectVI"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/@projectvi/client/**",
+      "node_modules/@projectvi/shared/**"
+    ]
   }
 }

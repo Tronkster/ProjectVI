@@ -287,6 +287,7 @@ test("the driver controls a vehicle; an empty one stays with its controller near
     assert.equal(controller(), wa.playerId); // nearest
 
     const driving = { flags: shared.SYNC_FLAG.IN_VEHICLE, vehicleId: id, seat: 0 };
+    s.advance(1000); // a second between moves, as with a real client
     await moveB(state(0, 0, driving));
     await settle();
     await moveA(state(0, 0, driving)); // the seat is taken
@@ -295,6 +296,7 @@ test("the driver controls a vehicle; an empty one stays with its controller near
     assert.equal(s.core.entities.get(id).driver, wb.playerId);
     assert.equal(controller(), wb.playerId);
 
+    s.advance(1000); // a second between moves, as with a real client
     await moveB(state(3)); // gets out; still close, so keeps control
     await moveA(state(5));
     await settle();
@@ -302,11 +304,13 @@ test("the driver controls a vehicle; an empty one stays with its controller near
     assert.equal(s.core.entities.get(id).driver, 0);
     assert.equal(controller(), wb.playerId);
 
+    s.advance(1000); // a second between moves, as with a real client
     await moveB(state(90)); // walks away past the handover distance
     await settle();
     s.sync.step();
     assert.equal(controller(), wa.playerId);
 
+    s.advance(1000); // a second between moves, as with a real client
     // A driver who disconnects gives the vehicle up.
     await moveA(state(0, 0, driving));
     await settle();
@@ -523,6 +527,200 @@ test("a client that never acknowledges is dropped once too much is waiting for i
     assert.equal(s.core.players.get(w.playerId), undefined);
   } finally {
     await silent.close();
+    await s.close();
+  }
+});
+
+test("jumps faster than any vehicle are held back, then accepted if the client keeps reporting them", async () => {
+  const s = await startServer();
+  const a = await client(s.port);
+  const flagged = [];
+  s.core.bus.on("playerSuspicious", (player, kind, details) => flagged.push({ id: player.$player, kind, details }));
+  try {
+    const w = await a.join("Ana");
+    let seq = 0;
+    const move = async (st) => {
+      await a.send(shared.encodeState({ session: w.session, seq: ++seq, clientTime: 0, state: st }));
+      await settle();
+    };
+    const x = () => s.core.players.get(w.playerId).position.x;
+
+    await move(state(0));
+    s.advance(1000);
+    await move(state(200)); // 200 m in a second: a fast car, fine
+    assert.equal(x(), 200);
+
+    s.advance(50);
+    await move(state(2000)); // 1.8 km in 50 ms: refused
+    assert.equal(x(), 200);
+    assert.deepEqual(flagged.map((f) => [f.id, f.kind]), [[w.playerId, "teleport"]]);
+
+    s.advance(1000);
+    await move(state(2000)); // still there a second later: still refused
+    assert.equal(x(), 200);
+    s.advance(2500);
+    await move(state(2000)); // 3.5 s of reporting it: accepted, so a teleport we don't know about resyncs
+    assert.equal(x(), 2000);
+
+    // Dying and respawning somewhere else is never a jump.
+    s.advance(50);
+    await move(state(2000, 0, { flags: shared.SYNC_FLAG.DEAD }));
+    s.advance(50);
+    await move(state(-3000));
+    assert.equal(x(), -3000);
+  } finally {
+    await a.close();
+    await s.close();
+  }
+});
+
+test("impossible seat claims are relayed as on foot and reported to scripts", async () => {
+  const s = await startServer();
+  const a = await client(s.port);
+  const b = await client(s.port);
+  const flagged = [];
+  s.core.bus.on("playerSuspicious", (player, kind, details) => flagged.push({ id: player.$player, kind, problem: details.problem }));
+  try {
+    const wa = await a.join("Ana");
+    const wb = await b.join("Ben");
+    const { id } = s.core.callNative("test", "entities.spawnVehicle", ["sultan", { x: 0, y: 0, z: 10 }, 0]);
+    let seqA = 0;
+    let seqB = 0;
+    const moveA = async (st) => { s.advance(SUSPICIOUS_GAP); await a.send(shared.encodeState({ session: wa.session, seq: ++seqA, clientTime: 0, state: st })); await settle(); };
+    const moveB = async (st) => { await b.send(shared.encodeState({ session: wb.session, seq: ++seqB, clientTime: 0, state: st })); await settle(); };
+    const seated = (vehicleId, seat) => ({ flags: shared.SYNC_FLAG.IN_VEHICLE, vehicleId, seat });
+    const relayed = () => s.core.players.get(wa.playerId).sync;
+
+    await moveB(state(1, 0, seated(id, 1))); // Ben takes the front passenger seat
+    await moveA(state(2, 0, seated(id, 1))); // taken
+    assert.equal(relayed().vehicleId, 0);
+    assert.equal(relayed().flags & shared.SYNC_FLAG.IN_VEHICLE, 0);
+    await moveA(state(2, 0, seated(9999, 0))); // no such vehicle
+    await moveA(state(2, 0, seated(id, 40))); // no such seat
+    await moveA(state(400, 0, seated(id, 2))); // the car is 400 m away
+    await moveA(state(2, 0, seated(id, 2))); // a free seat next to the car: fine
+    assert.equal(relayed().vehicleId, id);
+    assert.equal(relayed().seat, 2);
+    assert.deepEqual(flagged.map((f) => f.problem), ["the seat is taken", "no such vehicle", "no such seat", "too far from the vehicle"]);
+    assert.ok(flagged.every((f) => f.id === wa.playerId && f.kind === "seat"));
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+    await s.close();
+  }
+});
+
+// Longer than the gap between playerSuspicious events of one kind, so each bad claim is reported.
+const SUSPICIOUS_GAP = 6000;
+
+test("seat changes raise enter and leave events; vehicle.state and chat.send work for scripts", async () => {
+  const { SyncClient: Client } = require("@projectvi/shared/sync-client");
+  const s = await startServer();
+  const events = [];
+  for (const name of ["playerEnteredVehicle", "playerLeftVehicle"]) s.core.bus.on(name, (p, vehicleId, seat) => events.push([name, p.$player, vehicleId, seat]));
+  const a = new Client({ host: "127.0.0.1", port: s.port, name: "Ana", helloIntervalMs: 50 });
+  a.on("error", () => {});
+  const heard = [];
+  a.on("chat", (playerId, text) => heard.push([playerId, text]));
+  const raw = await client(s.port);
+  try {
+    const joined = await a.connect();
+    const wb = await raw.join("Ben", 77);
+    const { id } = s.core.callNative("test", "entities.spawnVehicle", ["sultan", { x: 0, y: 0, z: 10 }, 0]);
+    let seq = 0;
+    const move = async (st) => { s.advance(1000); await raw.send(shared.encodeState({ session: wb.session, seq: ++seq, clientTime: 0, state: st })); await settle(); };
+    const seated = (seat) => ({ flags: shared.SYNC_FLAG.IN_VEHICLE, vehicleId: id, seat });
+
+    await move(state(1));
+    await move(state(1, 0, seated(0)));
+    await move(state(1, 0, seated(1)));
+    await move(state(3));
+    assert.deepEqual(events, [
+      ["playerEnteredVehicle", wb.playerId, id, 0],
+      ["playerLeftVehicle", wb.playerId, id, 0],
+      ["playerEnteredVehicle", wb.playerId, id, 1],
+      ["playerLeftVehicle", wb.playerId, id, 1]
+    ]);
+
+    const car = s.core.callNative("test", "vehicle.state", [id]);
+    assert.equal(car.id, id);
+    assert.equal(car.model, "sultan");
+    assert.deepEqual(Object.keys(car).sort(), ["controller", "driver", "flags", "health", "id", "model", "position", "rotation", "staysWithHost", "steering", "velocity"]);
+    assert.equal(s.core.callNative("test", "vehicle.state", [9999]), null);
+
+    s.core.callNative("test", "chat.send", [0, "Server restarts in 5 minutes."]);
+    s.core.callNative("test", "chat.send", [joined.playerId, "Just for you."]);
+    assert.throws(() => s.core.callNative("test", "chat.send", [0, "   "]), /empty/);
+    assert.throws(() => s.core.callNative("test", "chat.send", [12345, "hi"]), /no player/);
+    for (let i = 0; i < 20 && heard.length < 2; i++) {
+      s.sync.step();
+      a.update?.();
+      await settle();
+    }
+    assert.deepEqual(heard, [[0, "Server restarts in 5 minutes."], [0, "Just for you."]]);
+  } finally {
+    a.close();
+    await raw.close();
+    await s.close();
+  }
+});
+
+test("a mission vehicle stays with the host wherever it is, and follows the host role", async () => {
+  const s = await startServer({ vehicleIdleSeconds: 60, timeoutSeconds: 120 });
+  const host = await client(s.port);
+  const other = await client(s.port);
+  try {
+    const wh = await host.join("Hana", 1);
+    const wo = await other.join("Olly", 2);
+    assert.equal(s.sync.stats().host, wh.playerId);
+    let seqH = 0;
+    let seqO = 0;
+    const moveH = (st) => host.send(shared.encodeState({ session: wh.session, seq: ++seqH, clientTime: 0, state: st }));
+    const moveO = (st) => other.send(shared.encodeState({ session: wo.session, seq: ++seqO, clientTime: 0, state: st }));
+    const vehicle = (x, flags) => ({ model: 0x1234, position: { x, y: 0, z: 10 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, velocity: { x: 0, y: 0, z: 0 }, health: 1000, steering: 0, flags });
+    const STAYS = shared.SYNC_VEHICLE_FLAG.STAYS_WITH_HOST;
+
+    await moveH(state(0));
+    await moveO(state(5000));
+    await settle();
+    // The host registers a mission car next to the other player; the other player tries the same flag.
+    await host.send(shared.encodeVehicleState({ session: wh.session, seq: 1, vehicleId: 0, localId: 1, state: vehicle(4990, STAYS) }));
+    await other.send(shared.encodeVehicleState({ session: wo.session, seq: 1, vehicleId: 0, localId: 1, state: vehicle(4995, STAYS) }));
+    await settle();
+    const [mission, ordinary] = [...s.core.entities.values()].sort((a, b) => a.id - b.id);
+    assert.equal(mission.staysWithHost, true);
+    assert.notEqual(ordinary.staysWithHost, true); // only the host can set it
+
+    s.sync.step();
+    assert.equal(mission.controller, wh.playerId); // 5 km from the host, still theirs
+    assert.equal(ordinary.controller, wo.playerId); // an ordinary car goes to whoever is nearest
+
+    // Nobody near either car for longer than the idle limit: the ordinary one is removed, the mission car isn't.
+    s.advance(1000);
+    await moveO(state(4800)); // 190 m from both cars, past the 100 m stream radius
+    await settle();
+    s.sync.step();
+    s.advance(61_000);
+    await moveH(state(0));
+    await moveO(state(4800));
+    await settle();
+    s.sync.step();
+    assert.equal(s.sync.stats().players, 2);
+    assert.ok(s.core.entities.has(mission.id));
+    assert.equal(s.core.entities.has(ordinary.id), false);
+
+    // The host leaves: the mission car goes to the new host.
+    await host.send(shared.encodeBye({ session: wh.session }));
+    await settle();
+    s.sync.step();
+    assert.equal(s.sync.stats().host, wo.playerId);
+    assert.equal(mission.controller, wo.playerId);
+
+    // Scripts can let it go again.
+    s.core.callNative("test", "vehicle.setStaysWithHost", [mission.id, false]);
+    assert.equal(s.core.callNative("test", "vehicle.state", [mission.id]).staysWithHost, false);
+    assert.throws(() => s.core.callNative("test", "vehicle.setStaysWithHost", [9999, true]), /no vehicle/);
+  } finally {
+    await Promise.all([host.close(), other.close()]);
     await s.close();
   }
 });

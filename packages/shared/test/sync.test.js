@@ -27,7 +27,9 @@ const VEHICLE = {
 };
 
 test("every message survives an encode and decode", () => {
-  assert.deepEqual(s.decodeSync(s.encodeHello({ nonce: 7, name: "Kai" })), { type: s.SYNC_MSG.HELLO, nonce: 7, name: "Kai" });
+  assert.deepEqual(s.decodeSync(s.encodeHello({ nonce: 7, name: "Kai" })), { type: s.SYNC_MSG.HELLO, nonce: 7, name: "Kai", ticket: "" });
+  assert.equal(s.decodeSync(s.encodeHello({ nonce: 7, name: "Kai", ticket: "v1.abc.def" })).ticket, "v1.abc.def");
+  assert.throws(() => s.encodeHello({ nonce: 7, name: "Kai", ticket: "x".repeat(s.SYNC_MAX_TICKET + 1) }));
   assert.deepEqual(s.decodeSync(s.encodeWelcome({ nonce: 7, session: 0xabcdef01, playerId: 3, tickRate: 20, serverTime: 1234 })), {
     type: s.SYNC_MSG.WELCOME, nonce: 7, session: 0xabcdef01, playerId: 3, tickRate: 20, serverTime: 1234
   });

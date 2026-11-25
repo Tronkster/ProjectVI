@@ -10,6 +10,7 @@ const { openDatabase } = require("./src/db");
 const { createAuth, publicUser } = require("./src/auth");
 const { createFriends } = require("./src/friends");
 const { createProfile } = require("./src/profile");
+const { createTickets } = require("./src/tickets");
 
 const MODES = ["Roleplay", "Racing", "Freeroam", "Other"];
 
@@ -53,7 +54,8 @@ function createMasterServer({
   rateLimitPerMin = 60,
   dbFile = ":memory:",
   discord = null,
-  publicUrl = "http://localhost:30180"
+  publicUrl = "http://localhost:30180",
+  ticketKeyFile = null
 } = {}) {
   const servers = new Map(); // "host:port" -> server record
   const hits = new Map(); // ip -> { windowStart, count }
@@ -70,6 +72,11 @@ function createMasterServer({
     }
   });
   const profile = createProfile({ db, sessionUser: auth.sessionUser, publicUser, onDeleted: friends.forget });
+  const freshServer = (id) => {
+    const s = servers.get(id);
+    return s && s.lastSeen >= now() - staleAfterMs ? s : null;
+  };
+  const tickets = createTickets({ keyFile: ticketKeyFile, now, sessionUser: auth.sessionUser, getServer: freshServer });
 
   function rateLimited(ip) {
     const t = now();
@@ -121,6 +128,7 @@ function createMasterServer({
         return send(res, 200, { ok: true });
       }
 
+      if (await tickets.handle(req, res, url)) return;
       if (await profile.handle(req, res, url)) return;
       if (await auth.handle(req, res, url)) return;
       if (await friends.handle(req, res, url)) return;
@@ -136,6 +144,7 @@ function createMasterServer({
     pruneStale();
     auth.sweep();
     friends.sweep();
+    tickets.sweep();
   }, 15_000);
   timer.unref();
   server.on("close", () => {
@@ -159,10 +168,16 @@ if (require.main === module) {
     }
     : null;
 
-  createMasterServer({ dbFile: process.env.DB_FILE || path.join(__dirname, "data", "projectvi.db"), discord, publicUrl }).listen(PORT, () => {
+  createMasterServer({
+    dbFile: process.env.DB_FILE || path.join(__dirname, "data", "projectvi.db"),
+    ticketKeyFile: process.env.TICKET_KEY_FILE || path.join(__dirname, "data", "ticket-key.pem"),
+    discord,
+    publicUrl
+  }).listen(PORT, () => {
     console.log(`ProjectVI master server listening on http://localhost:${PORT}`);
     console.log("  GET  /api/servers     list of online servers");
     console.log("  POST /api/heartbeat   game servers report in here");
+    console.log("  GET  /api/ticket-key  public key game servers check join tickets with");
     console.log(discord
       ? `  Discord login is on. Redirect URL: ${publicUrl.replace(/\/+$/, "")}/auth/discord/callback`
       : "  Discord login is off (set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to turn it on).");

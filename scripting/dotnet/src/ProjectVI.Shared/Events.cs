@@ -28,6 +28,26 @@ public static class ServerEvents
     /// </summary>
     public const string PlayerChat = "playerChat";
 
+    /// <summary>
+    /// A player sat down in a vehicle. Arguments: <c>Player player, int vehicleId, int seat</c> (seat 0 is the driver's).
+    /// Changing seats in the same vehicle is a <see cref="PlayerLeftVehicle"/> followed by this.
+    /// </summary>
+    public const string PlayerEnteredVehicle = "playerEnteredVehicle";
+
+    /// <summary>
+    /// A player got out of a vehicle, or left the server while in one. Arguments: <c>Player player, int vehicleId, int seat</c>.
+    /// A player kicked by a script while seated only gets <see cref="PlayerLeft"/>.
+    /// </summary>
+    public const string PlayerLeftVehicle = "playerLeftVehicle";
+
+    /// <summary>
+    /// A player's client reported something it shouldn't be able to, and the server refused it. Arguments:
+    /// <c>Player player, string kind, JsonElement details</c>. <c>kind</c> is <c>"teleport"</c> (details: distance in
+    /// metres, seconds) or <c>"seat"</c> (details: vehicle, seat, problem). At most one of each kind every 5 seconds per
+    /// player. What to do about it is up to the server's scripts: log it, warn, or kick.
+    /// </summary>
+    public const string PlayerSuspicious = "playerSuspicious";
+
     /// <summary>The weather changed. Arguments: <c>string weather, string previous</c>.</summary>
     public const string WeatherChanged = "weatherChanged";
 

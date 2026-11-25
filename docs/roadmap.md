@@ -5,7 +5,8 @@ What's left to build, grouped by where the work happens. Tick items off in the p
 **Milestones**
 
 1. **One world (A).** Everyone in the same world as the story's characters, with the story switched off.
-2. **The game client.** A module the emulator loads beside the game, running the sync protocol.
+2. **The game client.** A program beside the emulator that runs the sync protocol and drives the game through the
+   emulator's bridge ([client.md](client.md)).
 3. **A shared story (B).** The host's game runs the story, and the other players follow it.
 
 > [!NOTE]
@@ -62,14 +63,20 @@ Natives or engine functions for each of these:
 - [ ] When cutscenes start and end.
 - [ ] How missions create their characters, cars and objects.
 
-## Game client (C++)
+## Game client
 
-- [ ] A DLL that VIctory loads beside the game: a hook point in VIctory, not injection.
-- [ ] Port the sync protocol, tested against `packages/shared/test/sync-vectors.json`.
-- [ ] Port the reference client's logic (`packages/shared/sync-client.js`): joining, interpolation, vehicles and the
-  reliable channel.
-- [ ] Read the launcher's `PROJECTVI_*` settings, and run the sync loop on the per-frame hook.
-- [ ] Logging, and failing safely when something the client expects isn't found.
+A separate program beside the emulator rather than a DLL ([client.md](client.md)), so the sync code is the tested
+Node code and nothing is loaded into the game.
+
+- [x] The bridge in VIctory: a local connection, a frame event per presented frame, game operations by capability
+  (`crates/victory-bridge`, branch `feat/projectvi-bridge` on the fork https://github.com/Tronkster/VIctory; not in
+  upstream VIctory).
+- [x] The client (`client/`): reads the `PROJECTVI_*` settings, connects to the bridge, joins with the ticket, and
+  on each frame uses whatever game operations the emulator has. Logs what's missing; never invents data.
+- [x] The launcher starts it beside the emulator when joining, on its own Node.
+- [ ] The game operations themselves in VIctory's `victory-game` (`player.read`, `ped.*`, `vehicle.*`,
+  `player.setModel`, `world.set`, `screen.*`). Each needs the reverse-engineering items above.
+- [ ] Running server client scripts (`client.lua` and UI files from resources) in the client.
 
 ## Server and protocol (no game needed)
 
@@ -78,17 +85,18 @@ Natives or engine functions for each of these:
 - [x] Host and story characters
 - [x] Reliable channel: chat, `/commands`, notices, script events
 - [x] Server time of day and weather, pushed to every player
-- [ ] "Stays with the host" control for mission characters, cars and objects
-- [ ] Join tickets: the master server signs a ticket, the launcher passes it to the game, and the server checks it in
+- [x] "Stays with the host" control for cars: the host's client or a script marks a vehicle, and the host's game keeps it
+- [ ] The same for mission characters and objects, once they're synced (needs how missions create them)
+- [x] Join tickets: the master server signs a ticket, the launcher passes it to the game, and the server checks it in
   `HELLO`, so real players get their Discord identifiers and admin permissions work
 - [ ] Damage: the shooter reports a hit, the server checks it, and the victim's client applies it
-- [ ] A typed C# API for player state, ping, vehicles (with enter and exit events) and chat
-- [ ] Server-side checks against teleporting and impossible seat claims
+- [x] A typed C# API for player state, ping, vehicles (with enter and exit events) and chat
+- [x] Server-side checks against teleporting and impossible seat claims (`playerSuspicious` for scripts)
 - [ ] Smaller packets (quantised positions and rotations) once the client exists and real traffic can be measured
 
 ## Launcher
 
-- [ ] Pass the join ticket to the game.
+- [x] Pass the join ticket to the game (`PROJECTVI_TICKET`).
 - [ ] Show in-game presence to friends once the client exists.
 
 ## Housekeeping

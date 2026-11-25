@@ -4,7 +4,8 @@
 flowchart LR
   subgraph PC["Player's PC"]
     L["Launcher (Electron)"]
-    E["Emulator + GTA VI<br/>+ ProjectVI client (not built yet)"]
+    E["Emulator + GTA VI"]
+    C["ProjectVI client<br/>(client/)"]
   end
   M["Master server"]
   G["Game server"]
@@ -17,7 +18,9 @@ flowchart LR
   L -- "info, content list, files" --> G
   L -- "index.json + mod zips" --> R
   L -- "starts with PROJECTVI_* variables" --> E
-  E -. "game traffic (future)" .-> G
+  L -- "starts beside the emulator" --> C
+  C -- "bridge: frames, game operations" --- E
+  C -- "UDP sync, reliable messages" --> G
 ```
 
 ## Launcher

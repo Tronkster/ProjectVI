@@ -30,6 +30,19 @@ public interface IEntities
 
     /// <summary>Removes an entity. Does nothing if it's already gone.</summary>
     Task DeleteAsync(Entity entity);
+
+    /// <summary>
+    /// A vehicle's state as the server last heard it from the game simulating it: position, rotation, speed, health,
+    /// lights and siren, who's driving and whose game controls it. Null if there's no vehicle with that id.
+    /// </summary>
+    Task<VehicleState?> GetVehicleAsync(int vehicleId);
+
+    /// <summary>
+    /// Keeps a vehicle with the host's game (<paramref name="stays"/> true), as a mission's vehicle should be: the host
+    /// simulates it wherever it is, and it moves to the next host if the host leaves. A driver still controls it while
+    /// driving. False lets it go to whoever is nearest again. Throws if there's no such vehicle.
+    /// </summary>
+    Task SetStaysWithHostAsync(int vehicleId, bool stays = true);
 }
 
 internal sealed class EntitiesImpl(ScriptContext context) : IEntities
@@ -45,4 +58,13 @@ internal sealed class EntitiesImpl(ScriptContext context) : IEntities
         (await context.Runtime.CallNativeAsync(context.Resource.Name, "entities.list", [])).Deserialize<Entity[]>(context.Runtime.Json) ?? [];
 
     public Task DeleteAsync(Entity entity) => context.Runtime.CallNativeAsync(context.Resource.Name, "entities.delete", [entity.Id]);
+
+    public async Task<VehicleState?> GetVehicleAsync(int vehicleId)
+    {
+        JsonElement result = await context.Runtime.CallNativeAsync(context.Resource.Name, "vehicle.state", [vehicleId]);
+        return result.ValueKind == JsonValueKind.Null ? null : result.Deserialize<VehicleState>(context.Runtime.Json);
+    }
+
+    public Task SetStaysWithHostAsync(int vehicleId, bool stays = true) =>
+        context.Runtime.CallNativeAsync(context.Resource.Name, "vehicle.setStaysWithHost", [vehicleId, stays]);
 }

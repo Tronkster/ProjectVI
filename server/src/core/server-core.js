@@ -80,6 +80,7 @@ class ServerCore {
     this.exports = new Map(); // "resource/name" -> runtime
     this.entities = new Map(); // id -> entity (see addEntity)
     this.nextEntityId = 1;
+    this.chatSink = null; // (playerId or 0, text) => void, set by the sync server
   }
 
   addRuntime(runtime) {
@@ -222,6 +223,12 @@ class ServerCore {
     for (const [id, entity] of this.entities) if (entity.owner === resource) this.entities.delete(id);
   }
 
+  // Sends a chat line from the server. The sync server replaces this while it runs; until then it's only logged.
+  sendChat(playerId, text) {
+    if (this.chatSink) return this.chatSink(playerId, text);
+    this.log.info(`[chat${playerId ? ` to #${playerId}` : ""}] ${text}`);
+  }
+
   // ---- Natives: functions scripts call into the core ----
 
   callNative(resource, name, args) {
@@ -273,6 +280,40 @@ const NATIVES = {
   "player.character": (core, resource, id) => requirePlayer(core, id).character ?? 0,
   // True for the player whose game runs the story.
   "player.isHost": (core, resource, id) => requirePlayer(core, id).host === true,
+  // A vehicle's last synced state, or null if there's no such vehicle.
+  "vehicle.state": (core, resource, id) => {
+    const v = core.entities.get(Number(id));
+    if (v?.kind !== "vehicle") return null;
+    return {
+      id: v.id,
+      model: v.model,
+      position: { ...v.position },
+      rotation: { ...(v.rotation ?? { x: 0, y: 0, z: 0, w: 1 }) },
+      velocity: { ...v.velocity },
+      health: v.health,
+      steering: v.steering,
+      flags: v.flags,
+      driver: v.driver || 0,
+      controller: v.controller || 0,
+      staysWithHost: v.staysWithHost === true
+    };
+  },
+  // Keeps a vehicle with the host's game (a mission's car) or lets it go to whoever is nearest again.
+  "vehicle.setStaysWithHost": (core, resource, id, stays) => {
+    const v = core.entities.get(Number(id));
+    if (v?.kind !== "vehicle") throw new Error(`There's no vehicle with id ${id}.`);
+    v.staysWithHost = stays === true;
+    return true;
+  },
+  // A chat line from the server: to one player (id), or to everyone (0).
+  "chat.send": (core, resource, id, text) => {
+    const line = String(text ?? "").trim().slice(0, 500);
+    if (!line) throw new Error("Chat messages can't be empty.");
+    const target = Number(id) || 0;
+    if (target) requirePlayer(core, target);
+    core.sendChat(target, line);
+    return true;
+  },
   "world.time": (core) => core.world.time(),
   "world.setTime": (core, resource, hour, minute, second) => (core.world.setTime(hour, minute ?? 0, second ?? 0), true),
   "world.timeScale": (core) => core.world.scale,

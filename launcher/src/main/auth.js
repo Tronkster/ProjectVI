@@ -256,6 +256,19 @@ function createAuth({ getSettings, tokenStore, guestStore = memoryStore(), openE
     // ---- Friends: a Discord login, or else a guest account made when the player turns friends on ----
     hasFriendsAccount: () => Boolean(token || guestToken),
 
+    // A join ticket for a server on the master server's list: the game hands it to the server, which learns the
+    // player's verified Discord or guest identity from it. Resolves with the ticket, or "" when there's no account,
+    // the server isn't listed or the master server can't be reached; joining then goes ahead without one.
+    async joinTicket(serverId) {
+      if (!token && !guestToken) return "";
+      try {
+        const r = await call("/api/join-ticket", { method: "POST", body: { serverId }, as: "friends", timeoutMs: 5000 });
+        return r.ok && typeof r.data.ticket === "string" ? r.data.ticket : "";
+      } catch {
+        return "";
+      }
+    },
+
     async startGuest(name) {
       if (token || guestToken) return { ok: true };
       try {
