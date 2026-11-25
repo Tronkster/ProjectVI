@@ -69,8 +69,8 @@ A separate program beside the emulator rather than a DLL ([client.md](client.md)
 Node code and nothing is loaded into the game.
 
 - [x] The bridge in VIctory: a local connection, a frame event per presented frame, game operations by capability
-  (`crates/victory-bridge`, branch `feat/projectvi-bridge` on the fork https://github.com/Tronkster/VIctory; not in
-  upstream VIctory).
+  (`crates/victory-bridge`, branch `feat/projectvi-bridge` of https://github.com/Tronkster/victory-nvidia-8gb, based
+  on https://github.com/soldsawn/victory-nvidia-8gb; not in either upstream yet).
 - [x] The client (`client/`): reads the `PROJECTVI_*` settings, connects to the bridge, joins with the ticket, and
   on each frame uses whatever game operations the emulator has. Logs what's missing; never invents data.
 - [x] The launcher starts it beside the emulator when joining, on its own Node.
