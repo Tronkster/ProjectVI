@@ -3,7 +3,7 @@
   "name": "Clean HUD",
   "version": "1.1.0",
   "author": "ProjectVI examples",
-  "description": "A minimal speedometer and money display. Example mod for testing the launcher.",
+  "description": "A big speedometer. Example mod for testing the launcher and client scripts.",
   "license": "MIT",
   "tags": ["ui", "hud"]
 }

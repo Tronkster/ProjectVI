@@ -133,3 +133,69 @@ test("game state is turned into the sync protocol's state, with the vehicle id f
   assert.equal(inCar.vehicleId, 7);
   assert.equal(inCar.seat, 1);
 });
+
+test("client scripts run from the server's resources: UI pages, events both ways, chat from the overlay", async () => {
+  const { EventEmitter } = require("node:events");
+  const { OverlayLink } = require("../src/overlay-link");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pvi-res-"));
+  const write = (name, text) => {
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, text);
+    return file;
+  };
+  const lua = write("blob-lua", `
+    local hud = ui.overlay("ui/index.html")
+    hud:send("hello", { name = player.name, host = player.is_host })
+    hud:on("clicked", function(data) server.emit("hud:clicked", data.x) end)
+    on("jobs:assigned", function(job) hud:send("job", job) end)
+  `);
+  const html = write("blob-html", "<p>hud</p>");
+  const contentFile = write("manifest.json", JSON.stringify({ resources: [{ name: "hud", files: [{ path: "client.lua", file: lua }, { path: "ui/index.html", file: html }] }] }));
+
+  // The launcher's end of the IPC channel.
+  const channel = new EventEmitter();
+  const posted = [];
+  channel.send = (message) => posted.push(message);
+  const overlay = new OverlayLink({ channel });
+
+  const server = await startGameServer();
+  const fromClients = [];
+  server.core.bus.emitFromClient = (playerId, name, args) => (fromClients.push({ playerId, name, args }), true);
+  const chats = [];
+  server.core.bus.on("playerChat", (player, line) => chats.push(line));
+  const b = await startBridgeDouble({});
+  const bridge = new Bridge({ port: b.port, token: b.token });
+  await bridge.connect();
+  const log = recordingLog();
+  const client = new GameClient({ settings: { host: "127.0.0.1", port: 1, name: "Kai", ticket: "", contentFile }, bridge, log, fetchInfo: server.info, overlay });
+  try {
+    const joined = await client.start();
+    const of = (t) => posted.filter((m) => m.t === t);
+    assert.equal(of("session")[0].player.name, "Kai");
+    assert.deepEqual(of("package")[0].files, { "client.lua": lua, "ui/index.html": html });
+    const [open] = of("ui.open");
+    assert.equal(open.path, "ui/index.html");
+    assert.ok(of("ui.send").length, log.lines.join(" | "));
+    assert.deepEqual(of("ui.send")[0], { t: "ui.send", id: open.id, name: "hello", data: { name: "Kai", host: false } });
+
+    // Server -> client script -> UI page.
+    server.core.bus.emit("jobs:assigned", ["mechanic"], { target: `client:${joined.playerId}` });
+    await until(() => of("ui.send").some((m) => m.name === "job" && m.data === "mechanic"), { every: () => server.sync.step() });
+
+    // UI page -> script -> server.
+    channel.emit("message", { t: "ui.message", id: open.id, name: "clicked", data: { x: 7 } });
+    await until(() => fromClients.some((e) => e.name === "hud:clicked" && e.args[0] === 7), { every: () => client.sync.flushReliable() });
+
+    // Overlay chat box -> server.
+    channel.emit("message", { t: "chat.send", text: "hi from the overlay" });
+    await until(() => chats.includes("hi from the overlay"), { every: () => client.sync.flushReliable() });
+    // ...and it comes back to the overlay as chat.
+    await until(() => of("chat").some((m) => m.text === "hi from the overlay" && m.name === "Kai"), { every: () => server.sync.step() });
+    assert.ok(of("players").length >= 1);
+  } finally {
+    await client.stop("test over");
+    await b.close();
+    await server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1,4 +1,4 @@
-description = "Simple speedometer and money display."
+description = "Speedometer and player count, as an example of client scripts and UI pages."
 version = "1.0.0"
 
 client_files = ["client.lua", "ui/*"]

@@ -8,6 +8,9 @@
 const { EventEmitter } = require("node:events");
 const { SyncClient } = require("@projectvi/shared/sync-client");
 const { SYNC_VERSION, SYNC_FLAG, quatFromHeading } = require("@projectvi/shared");
+const { ScriptHost } = require("./scripting");
+const { loadPackages } = require("./packages");
+const { OverlayLink } = require("./overlay-link");
 
 // What each group of operations gives the player, for the log.
 const FEATURES = [
@@ -56,8 +59,15 @@ function toWireVehicle(v) {
 
 class GameClient extends EventEmitter {
   // bridge: a connected Bridge. settings: from readSettings. log: { info, warn, error }.
-  constructor({ settings, bridge, log, createSync = (options) => new SyncClient(options), fetchInfo = defaultFetchInfo }) {
+  // overlay: an OverlayLink (the launcher's overlay), or one without a channel.
+  constructor({ settings, bridge, log, createSync = (options) => new SyncClient(options), fetchInfo = defaultFetchInfo, overlay = new OverlayLink({ channel: null }), scripts = true }) {
     super();
+    this.overlay = overlay;
+    this.useScripts = scripts;
+    this.scripts = null; // ScriptHost, once joined
+    this.local = null; // the last player.read result, for scripts' player table
+    this.uiPackages = new Set(); // packages whose files the overlay knows
+    this.nextUi = 1;
     this.settings = settings;
     this.bridge = bridge;
     this.log = log;
@@ -128,20 +138,104 @@ class GameClient extends EventEmitter {
     });
     sync.on("role", ({ character, host }) => this.onRole(character, host));
     sync.on("world", (world) => this.onWorld(world));
-    sync.on("notice", (text) => this.show("screen.notify", { text }, `[notice] ${text}`));
+    sync.on("notice", (text) => {
+      this.show("screen.notify", { text }, `[notice] ${text}`);
+      this.overlay.post({ t: "notice", text });
+      this.scripts?.dispatch("notice", [text]);
+    });
     sync.on("chat", (playerId, text) => {
       const name = playerId === 0 ? "Server" : sync.players.get(playerId)?.name ?? `#${playerId}`;
       this.show("screen.chat", { name, text }, `[chat] ${name}: ${text}`);
+      this.overlay.post({ t: "chat", name, text });
+      this.scripts?.dispatch("chat", [name, text, playerId]);
     });
+    sync.on("event", (name, args) => this.scripts?.dispatch(name, args));
+    sync.on("roster", (players) => this.onRoster(players));
     sync.on("close", ({ reason, kicked }) => this.stop(kicked ? `Kicked: ${reason}` : reason));
 
     const joined = await sync.connect();
     this.log.info(`Joined ${this.settings.host}:${this.settings.port} as ${this.settings.name} (player #${joined.playerId}, ${joined.tickRate} updates a second${this.settings.ticket ? ", verified" : ", no join ticket"}).`);
 
+    this.overlay.post({ t: "session", server: `${this.settings.host}:${this.settings.port}`, player: { id: joined.playerId, name: this.settings.name } });
+    this.overlay.on("chat.send", ({ text }) => typeof text === "string" && text.trim() && sync.sendChat(text.slice(0, 500)));
+    this.overlay.on("ui.message", ({ id, name, data }) => this.scripts?.uiMessage(String(id), String(name), data));
+    if (!this.overlay.available) this.log.info("No overlay (the client wasn't started by the launcher): chat and script UI pages only go to this log.");
+    if (this.useScripts) await this.startScripts();
+
     this.bridge.on("frame", () => this.onFrame());
     this.bridge.on("exit", (code) => this.stop(`The game exited (${code}).`));
     this.bridge.on("close", (reason) => this.stop(reason));
     return joined;
+  }
+
+  // Client scripts from the server's resources and the enabled mods (docs/client-scripting.md).
+  async startScripts() {
+    const { packages, warnings } = loadPackages({ contentFile: this.settings.contentFile, modsFile: this.settings.modsFile });
+    for (const w of warnings) this.log.warn(w);
+    if (!packages.length) return;
+    this.scripts = new ScriptHost({ api: this.scriptApi() });
+    this.scripts.setPlayer(this.playerSnapshot());
+    await this.scripts.start(packages);
+  }
+
+  scriptApi() {
+    const sync = this.sync;
+    return {
+      log: (pkg, level, text) => this.log[level === "error" ? "error" : level === "warn" ? "warn" : "info"](`[${pkg.kind} ${pkg.name}] ${text}`),
+      sendServerEvent: (name, args) => sync.sendEvent(name, args),
+      sendChat: (text) => sync.sendChat(String(text).slice(0, 500)),
+      notify: (text) => {
+        this.show("screen.notify", { text }, `[notice] ${text}`);
+        this.overlay.post({ t: "notice", text });
+      },
+      players: () => [...sync.players.values()].map((p) => ({ id: p.id, name: p.name, is_host: p.host, character: p.character || undefined })),
+      time: () => sync.gameTime(),
+      weather: () => sync.world?.weather,
+      uiOpen: (pkg, file) => this.openUi(pkg, file),
+      uiSend: (id, name, data) => this.overlay.post({ t: "ui.send", id, name, data }),
+      uiShow: (id, visible) => this.overlay.post({ t: "ui.show", id, visible })
+    };
+  }
+
+  openUi(pkg, file) {
+    if (!pkg.files.has(file) || !/\.html?$/i.test(file)) throw new Error(`ui.overlay: no HTML page ${file} in this package`);
+    const id = `${pkg.key}/${this.nextUi++}`;
+    if (!this.uiPackages.has(pkg.key)) {
+      this.uiPackages.add(pkg.key);
+      this.overlay.post({ t: "package", key: pkg.key, name: pkg.name, files: Object.fromEntries(pkg.files) });
+    }
+    if (!this.overlay.post({ t: "ui.open", id, key: pkg.key, path: file })) this.warnOnce("no-overlay-ui", `${pkg.name} opened ${file}, but there's no overlay to show it in.`);
+    return id;
+  }
+
+  onRoster(players) {
+    const before = this.rosterSeen ?? new Map();
+    for (const [id, p] of players) if (!before.has(id) && id !== this.sync.playerId) this.scripts?.dispatch("playerJoined", [{ id, name: p.name }]);
+    for (const [id, p] of before) if (!players.has(id)) this.scripts?.dispatch("playerLeft", [{ id, name: p.name }]);
+    this.rosterSeen = new Map(players);
+    this.overlay.post({ t: "players", players: [...players.values()].map((p) => ({ id: p.id, name: p.name, host: p.host, me: p.id === this.sync.playerId })) });
+  }
+
+  // What scripts see as `player`: who we are, plus what the game reported, if it can. Nothing is filled in for
+  // what the game can't report.
+  playerSnapshot() {
+    const sync = this.sync;
+    const snapshot = { id: sync?.playerId ?? undefined, name: this.settings.name, is_host: sync?.isHost ?? false, character: sync?.character || undefined };
+    const s = this.local;
+    if (s) {
+      const speed = Math.hypot(s.velocity?.x || 0, s.velocity?.y || 0, s.velocity?.z || 0);
+      Object.assign(snapshot, {
+        position: s.position,
+        heading: s.heading,
+        health: s.health,
+        armour: s.armour,
+        speed,
+        dead: (s.flags & SYNC_FLAG.DEAD) !== 0,
+        in_vehicle: Boolean(s.vehicleId),
+        vehicle: s.vehicleId ? { id: s.vehicleId, seat: s.seat, speed } : undefined
+      });
+    }
+    return snapshot;
   }
 
   onFrame() {
@@ -179,7 +273,10 @@ class GameClient extends EventEmitter {
       // A car the game spawned (a parked car we got into): register it so others see it.
       if (!vehicleId && this.can("vehicle.read")) await this.registerOwnCar(handle);
     }
-    this.sync.sendState(toWireState(state, vehicleId));
+    const wire = toWireState(state, vehicleId);
+    this.local = wire;
+    this.sync.sendState(wire);
+    this.scripts?.setPlayer(this.playerSnapshot());
   }
 
   vehicleIdForHandle(handle) {
@@ -264,6 +361,7 @@ class GameClient extends EventEmitter {
 
   onWorld(world) {
     const time = this.sync.gameTime();
+    this.scripts?.dispatch("world", [time, world.weather]);
     this.log.info(`World: ${time ? `${String(time.hour).padStart(2, "0")}:${String(time.minute).padStart(2, "0")}` : "?"}, ${world.weather}, ${world.scale} in-game minutes a minute.`);
     if (!this.can("world.set") || !time) return;
     this.call("world.set", { ...time, scale: world.scale, weather: world.weatherChanged ? world.weather : undefined, transition: world.transition });
@@ -278,6 +376,8 @@ class GameClient extends EventEmitter {
     if (this.stopped) return;
     this.stopped = true;
     this.log.info(`Leaving: ${reason}`);
+    this.scripts?.stop();
+    this.overlay.post({ t: "end", reason });
     for (const id of [...this.peds.keys()]) this.removePed(id);
     for (const id of [...this.cars.keys()]) this.removeCar(id);
     await this.sync?.close(reason);

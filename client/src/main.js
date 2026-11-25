@@ -7,6 +7,7 @@ const path = require("node:path");
 const { readSettings } = require("./settings");
 const { Bridge, readBridgeFile } = require("./bridge");
 const { GameClient } = require("./client");
+const { OverlayLink } = require("./overlay-link");
 
 function createLog(file) {
   let stream = null;
@@ -44,7 +45,7 @@ async function main() {
     const { port, token } = await readBridgeFile(settings.bridgeFile);
     bridge = new Bridge({ port, token });
     await bridge.connect();
-    client = new GameClient({ settings, bridge, log });
+    client = new GameClient({ settings, bridge, log, overlay: new OverlayLink() });
     const stop = () => client.stop("Stopped.");
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);

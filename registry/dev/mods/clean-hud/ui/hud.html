@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"></head>
 <body style="margin:0;font-family:system-ui,sans-serif">
-  <div id="speed" style="position:fixed;right:24px;bottom:24px;color:#fff;font-size:40px;font-weight:800">0</div>
-  <script>projectvi.on("speed", (kmh) => { document.getElementById("speed").textContent = kmh; });</script>
+  <div id="speed" style="position:fixed;right:24px;bottom:24px;color:#fff;font-size:40px;font-weight:800">–</div>
+  <script>projectvi.on("speed", (kmh) => { document.getElementById("speed").textContent = kmh ?? "–"; });</script>
 </body>
 </html>
