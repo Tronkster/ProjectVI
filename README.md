@@ -39,7 +39,10 @@ Optional extras for development:
 ```sh
 npm run dev:fake       # seven fake servers so the browser looks busy
 npm run dev:registry   # example mods on http://localhost:30190/index.json
+npm run dev:bots       # bots that join the local game server over player sync and walk and drive around
 ```
+
+`npm run dev:bots -- --count 20 --view 30125` starts 20 bots and a live map of what the first one sees on http://127.0.0.1:30125. The other options are at the top of [`server/scripts/bots.js`](server/scripts/bots.js).
 
 To use the example mods, turn on **Settings → Developer → Developer mode**, then set **Settings → Mods → Mod registry** to that address.
 

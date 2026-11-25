@@ -1,6 +1,6 @@
 # Hosting a ProjectVI server
 
-> **Status:** the server already lists itself and sends resources to players' launchers. Actual gameplay sync arrives with the ProjectVI client.
+> **Status:** the server already lists itself and sends resources to players' launchers. Actual gameplay sync arrives with the ProjectVI client. Until then, `npm run dev:bots -- --server <host>:<port>` joins bots over player sync to test a server.
 
 ## Rules
 
