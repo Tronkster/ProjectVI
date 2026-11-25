@@ -1,18 +1,32 @@
+<a id="readme-top"></a>
+
 <div align="center">
 
-# ProjectVI
+<img src="docs/images/banner.svg" alt="ProjectVI: open-source multiplayer for GTA VI on PC" width="100%">
 
-**Open-source multiplayer for GTA VI on PC**
+<p>
+  <a href="https://github.com/Tronkster/ProjectVI/actions/workflows/ci.yml"><img src="https://github.com/Tronkster/ProjectVI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Tronkster/ProjectVI/releases/latest"><img src="https://img.shields.io/github/v/release/Tronkster/ProjectVI?color=ff6b1a&label=release" alt="Latest release"></a>
+  <a href="https://github.com/Tronkster/ProjectVI/releases"><img src="https://img.shields.io/github/downloads/Tronkster/ProjectVI/total?color=ff6b1a" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&logoColor=white" alt="Node.js 22.13 or newer">
+  <img src="https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white" alt=".NET 10">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-Run your own servers, script your own game modes in C#, and play the story's world together.
+<p>
+  <a href="https://github.com/Tronkster/ProjectVI/releases/latest"><b>Download</b></a> ·
+  <a href="docs/hosting-a-server.md"><b>Host a server</b></a> ·
+  <a href="docs/making-mods.md"><b>Make mods</b></a> ·
+  <a href="docs/protocol.md"><b>Protocol</b></a> ·
+  <a href="docs/roadmap.md"><b>Roadmap</b></a>
+</p>
 
-[![CI](https://github.com/Tronkster/ProjectVI/actions/workflows/ci.yml/badge.svg)](https://github.com/Tronkster/ProjectVI/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Tronkster/ProjectVI)](https://github.com/Tronkster/ProjectVI/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-![The ProjectVI launcher's server browser](docs/images/launcher-servers.png)
+<img src="docs/images/launcher-servers.png" alt="The ProjectVI launcher's server browser" width="100%">
 
 </div>
+
+<br>
 
 > [!IMPORTANT]
 > ProjectVI is an independent community project. It is not affiliated with, endorsed by or sponsored by Rockstar Games, Take-Two Interactive or Microsoft. Players need their own copy of the game. ProjectVI never ships or links to game files, encryption keys or emulators, and never connects to Rockstar's or Xbox Live's online services.
@@ -21,6 +35,7 @@ Run your own servers, script your own game modes in C#, and play the story's wor
 
 - [Overview](#overview)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Status](#status)
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
@@ -37,27 +52,65 @@ GTA VI on PC means the Xbox Series version running through emulation, and it onl
 
 ## Features
 
-**Launcher**
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🚀 Launcher
+
 - Server browser with favorites, ping, game-mode filters and search
 - Friends by friend code, with online status and "join my server"
 - Server content downloads, verified by checksum and shared between servers
-- Public mod library: browse, install, update, and turn mods on and off
+- Public mod library: browse, install, update, turn on and off
 - Windows installer with automatic updates
 
-**Game server**
-- One TOML file for configuration, and resources scripted in C#
-- Commands, permissions, exports, a key-value store and events across resources
-- Content hosting for players' launchers, and listing on the master server
+</td>
+<td width="50%" valign="top">
 
-**Player sync**
-- Player and vehicle state over UDP at up to 60 updates a second, interpolated on the receiving side
-- Server-assigned vehicle ids, with one client simulating each vehicle and hand-over between players
-- A host role, and the story's characters (Lucia and Jason) given out to players so nobody sees two of the same
-- A reliable, ordered channel for chat, `/commands`, notices and script events in both directions
+### 🖥️ Game server
 
-**Testing**
-- Bots that join any server, walk, drive and chat, with a live map and simulated packet loss
-- A reference client in Node and example packets for every message, for porting the client to C++
+- One TOML file for configuration
+- Resources scripted in C#, with commands, permissions, exports, storage and events
+- Hosts each resource's files for players' launchers
+- Lists itself on the master server
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🔄 Player sync
+
+- Player and vehicle state over UDP, up to 60 updates a second, smoothed on arrival
+- Vehicle ids from the server, one client simulating each vehicle, hand-over between players
+- A host role, and the story's characters (Lucia and Jason) given out so nobody sees two of the same
+- A reliable channel for chat, `/commands`, notices and script events
+
+</td>
+<td width="50%" valign="top">
+
+### 🧪 Testing without the game
+
+- Bots that join any server, walk, drive and chat
+- A live map of what a bot sees, and simulated packet loss
+- A reference client in Node, and example packets for every message, for porting the client to C++
+
+</td>
+</tr>
+</table>
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/launcher-join.png" alt="Joining a server: the launcher asks before downloading the server's content"></td>
+<td width="50%"><img src="docs/images/launcher-mods.png" alt="The mod library"></td>
+</tr>
+<tr>
+<td align="center"><sub>Joining a server: content is checked against the server's checksums</sub></td>
+<td align="center"><sub>The mod library</sub></td>
+</tr>
+</table>
 
 ## Status
 
@@ -133,6 +186,10 @@ That joins 20 bots that walk and drive near the spawn point, chat every 5 second
 
 ## Development
 
+<p>
+  <img src="https://skillicons.dev/icons?i=nodejs,electron,cs,dotnet,githubactions" alt="Built with Node.js, Electron, C#, .NET and GitHub Actions">
+</p>
+
 | Command | What it does |
 | --- | --- |
 | `npm test` | Runs every test (Node and .NET) |
@@ -140,6 +197,9 @@ That joins 20 bots that walk and drive near the spawn point, chat every 5 second
 | `npm run build:scripting` | Builds the C# script host |
 | `npm run dist` | Builds `launcher/dist/ProjectVI-Setup-<version>.exe` |
 | `npm run capture -w launcher` | Screenshots of the main launcher screens |
+
+<details>
+<summary><b>Repository layout</b></summary>
 
 ```
 launcher/          Electron desktop app
@@ -152,7 +212,14 @@ packages/zip/      Safe zip reading for mods
 docs/              Guides and reference
 ```
 
-**Releasing:** tag a version, for example `git tag v0.5.0 && git push --tags`. The Release workflow builds the installer and publishes it on GitHub Releases, where installed launchers find it. Builds aren't code-signed yet, so Windows SmartScreen warns on first install (**More info → Run anyway**).
+</details>
+
+<details>
+<summary><b>Releasing</b></summary>
+
+Tag a version, for example `git tag v0.5.0 && git push --tags`. The Release workflow builds the installer and publishes it on GitHub Releases, where installed launchers find it. Builds aren't code-signed yet, so Windows SmartScreen warns on first install (**More info → Run anyway**).
+
+</details>
 
 ## Documentation
 
@@ -164,17 +231,24 @@ docs/              Guides and reference
 | [Running a master server](docs/master-server.md) | Running your own server list |
 | [Making mods](docs/making-mods.md) and the [mod registry](docs/registry.md) | Mod authors |
 | [Client reverse engineering](docs/client-reverse-engineering.md) | Contributors working on the game client |
+| [Roadmap and todo](docs/roadmap.md) | What's left, item by item |
 
 ## Roadmap
 
-1. **One world (milestone A).** Everyone in the same world as the story's characters, with the story switched off: player and vehicle sync, roles, chat and events are done; server time and weather, damage and join tickets are next.
+1. **One world (milestone A).** Everyone in the same world as the story's characters, with the story switched off. Player and vehicle sync, roles, chat and events are done; server time and weather, damage and join tickets are next.
 2. **The game client.** A module the emulator loads beside the game, running the same protocol. Blocked until the game renders under the emulator.
 3. **A shared story (milestone B).** The host's game runs the story; mission characters, vehicles and events stream to the other players, and progress comes from the host's save.
+
+The full list, including the reverse-engineering work, is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Contributing
 
 Pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) first. Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
+<a href="https://github.com/Tronkster/ProjectVI/graphs/contributors"><img src="https://contrib.rocks/image?repo=Tronkster/ProjectVI" alt="Contributors"></a>
+
 ## License
 
 [MIT](LICENSE). Grand Theft Auto and Grand Theft Auto VI are trademarks of Take-Two Interactive Software, Inc. Xbox is a trademark of Microsoft Corporation.
+
+<p align="right"><a href="#readme-top">Back to top ↑</a></p>

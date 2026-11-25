@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="ProjectVI: open-source multiplayer for GTA VI on PC">
+  <defs>
+    <radialGradient id="glow" cx="18%" cy="50%" r="60%">
+      <stop offset="0" stop-color="#ff6b1a" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ff6b1a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="url(#fade)" stroke-width="1"/>
+    </pattern>
+    <clipPath id="card"><rect width="1280" height="320" rx="24"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1280" height="320" fill="#0a0c10"/>
+    <rect width="1280" height="320" fill="url(#grid)" opacity="0.6"/>
+    <rect width="1280" height="320" fill="url(#glow)"/>
+    <rect y="316" width="1280" height="4" fill="#ff6b1a"/>
+  </g>
+
+  <!-- The launcher's icon: an orange tile with "VI" in 35 px blocks -->
+  <g transform="translate(96 64) scale(0.375)">
+    <rect width="512" height="512" rx="96" fill="#ff6b1a"/>
+    <g fill="#07090d">
+      <rect x="98" y="133" width="35" height="140"/>
+      <rect x="133" y="273" width="35" height="70"/>
+      <rect x="168" y="343" width="35" height="35"/>
+      <rect x="203" y="273" width="35" height="70"/>
+      <rect x="238" y="133" width="35" height="140"/>
+      <rect x="308" y="133" width="105" height="35"/>
+      <rect x="343" y="168" width="35" height="175"/>
+      <rect x="308" y="343" width="105" height="35"/>
+    </g>
+  </g>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif">
+    <text x="336" y="158" fill="#ffffff" font-size="84" font-weight="700" letter-spacing="-1">Project<tspan fill="#ff6b1a">VI</tspan></text>
+    <text x="340" y="208" fill="#c9ced8" font-size="30" font-weight="400">Open-source multiplayer for GTA VI on PC</text>
+    <text x="340" y="252" fill="#7d8594" font-size="20" font-family="'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace" letter-spacing="1">SERVERS · C# SCRIPTING · MODS · PLAYER SYNC</text>
+  </g>
+</svg>
