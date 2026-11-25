@@ -72,6 +72,12 @@ public sealed class TestServer : IAsyncDisposable
     /// <summary>Events scripts sent to clients, oldest first.</summary>
     public IReadOnlyList<SentEvent> SentToClients => runtime.Sent;
 
+    /// <summary>The simulated in-game time; scripts change it through <c>World</c>.</summary>
+    public GameTime WorldTime { get => runtime.WorldTime; set => runtime.WorldTime = value; }
+
+    /// <summary>The simulated weather.</summary>
+    public string Weather { get => runtime.Weather; set => runtime.Weather = value; }
+
     /// <summary>Entities scripts spawned.</summary>
     public IReadOnlyList<Entity> Entities => runtime.Entities;
 

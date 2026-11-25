@@ -3,6 +3,7 @@
 
 const readline = require("node:readline");
 const { splitCommandLine } = require("./server-core");
+const { parseTime } = require("./world");
 
 const HELP = [
   "help                          this list",
@@ -11,6 +12,9 @@ const HELP = [
   "players                       list connected players",
   "commands                      list script commands",
   "emit <event> [json...]        emit a server event, e.g. emit welcome:ping \"Kai\"",
+  "time [hh:mm]                  show or set the in-game time",
+  "timescale [minutes]           show or set in-game minutes per real minute (0 stops the clock)",
+  "weather [name] [seconds]      show or set the weather, blending over the given seconds",
   "<command> [args...]           run a script command as the console, e.g. job Ana mechanic",
   "quit                          stop the server"
 ];
@@ -66,6 +70,35 @@ function startConsole({ core, resources, log, onQuit }) {
       const [name, ...more] = splitCommandLine(rest);
       if (name) core.bus.emit(name, parseArgs(rest.slice(rest.indexOf(name) + name.length)));
       void more;
+    },
+    time: ([value]) => {
+      if (value) {
+        const seconds = parseTime(value);
+        if (seconds === null) return log.info("Usage: time 18:30");
+        core.world.setTime(Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60));
+      }
+      const { hour, minute } = core.world.time();
+      log.info(`In-game time ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}, ${core.world.scale} in-game minutes per real minute.`);
+    },
+    timescale: ([value]) => {
+      if (value !== undefined) {
+        try {
+          core.world.setTimeScale(Number(value));
+        } catch (err) {
+          return log.info(err.message);
+        }
+      }
+      log.info(core.world.scale === 0 ? "The clock is stopped." : `${core.world.scale} in-game minutes per real minute.`);
+    },
+    weather: ([name, seconds]) => {
+      if (name) {
+        try {
+          core.world.setWeather(name, seconds === undefined ? 30 : Number(seconds));
+        } catch (err) {
+          return log.info(err.message);
+        }
+      }
+      log.info(`Weather: ${core.world.weather}.`);
     },
     fakeplayer: ([action, name, ...identifiers]) => {
       if (!needDev()) return;

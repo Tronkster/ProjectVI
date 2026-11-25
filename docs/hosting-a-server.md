@@ -48,9 +48,30 @@ public = true               # false keeps the server off the list
 
 [resources]
 start = ["welcome", "hud"]  # folders in resources/, started in this order
+
+[world]
+time = "12:00"              # in-game time when the server starts
+time_scale = 30             # in-game minutes per real minute (GTA V's is 30); 0 stops the clock
+weather = "clear"
+weather_cycle = []          # e.g. ["clear", "clouds", "rain"]: a new one from the list every weather_minutes
+weather_minutes = 15
 ```
 
 Restart the server after changing it.
+
+### Time and weather
+
+Every player sees the server's time of day and weather, not their own game's. Change them while the server runs by
+typing in its window:
+
+| Command | Does |
+| --- | --- |
+| `time` / `time 18:30` | Shows or sets the in-game time |
+| `timescale` / `timescale 0` | Shows or sets in-game minutes per real minute; 0 stops the clock |
+| `weather` / `weather rain 20` | Shows or sets the weather, blending into it over 20 seconds (30 if left out) |
+
+Scripts can do the same through `World` (C#). Weather names are the game's, lowercased: until GTA VI's are known,
+GTA V's are a good guide (`clear`, `extrasunny`, `clouds`, `overcast`, `rain`, `thunder`, `foggy`, `smog`).
 
 ## Resources
 

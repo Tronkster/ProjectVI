@@ -45,6 +45,9 @@ const CLOCK_WINDOW = 40; // snapshots kept for the server clock estimate: 2 s at
 //   "notice" (text)            a message for the player
 //   "chat" (playerId, text)    a chat line, including our own
 //   "event" (name, args)       a script event the server sent this client
+//   "world" (world)            the clock or weather changed: { clock, scale, weather, transition, weatherChanged }.
+//                              Only when weatherChanged, blend into `weather` over `transition` seconds (a time
+//                              change mustn't cut a blend short); gameTime() gives the time to show
 //   "close" ({ reason, kicked })
 class SyncClient extends EventEmitter {
   // host, port: the server's sync address (GET /projectvi/info gives the port). name: the player name.
@@ -71,6 +74,7 @@ class SyncClient extends EventEmitter {
     this.streamOutMs = streamOutMs;
     this.lossRate = lossRate;
     this.reliable = null; // chat, events and notices, once joined
+    this.world = null; // the last clock and weather from the server
     this.now = now;
     this.startedAt = now();
 
@@ -215,6 +219,11 @@ class SyncClient extends EventEmitter {
       if (message?.kind === SYNC_CHANNEL.CHAT) this.emit("chat", message.playerId, message.text);
       else if (message?.kind === SYNC_CHANNEL.EVENT) this.emit("event", message.name, message.args);
       else if (message?.kind === SYNC_CHANNEL.NOTICE) this.emit("notice", message.text);
+      else if (message?.kind === SYNC_CHANNEL.WORLD) {
+        const weatherChanged = this.world?.weather !== message.weather;
+        this.world = message;
+        this.emit("world", { ...message, weatherChanged });
+      }
     }
   }
 
@@ -407,6 +416,17 @@ class SyncClient extends EventEmitter {
     this.vehicleSeq = (this.vehicleSeq + 1) & 0xffff;
     this.send(encodeVehicleState({ session: this.session, seq: this.vehicleSeq, vehicleId: id, localId, state }));
     return true;
+  }
+
+  // ---- Clock and weather ----
+
+  // The in-game time of day to show now: { hour, minute, second }, or null before the server has sent it.
+  // The clock keeps running here between messages, at the server's scale.
+  gameTime() {
+    const t = this.serverNow();
+    if (!this.world || t === null) return null;
+    const seconds = Math.floor((((this.world.clock + ((t - this.world.serverTime) / 1000) * this.world.scale) % 86_400) + 86_400) % 86_400);
+    return { hour: Math.floor(seconds / 3600), minute: Math.floor((seconds % 3600) / 60), second: seconds % 60 };
   }
 
   // ---- Housekeeping ----

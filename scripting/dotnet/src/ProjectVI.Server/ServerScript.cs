@@ -20,6 +20,7 @@ public abstract class ServerScript : Script
     private ServerEventsImpl? events;
     private StoreImpl? store;
     private EntitiesImpl? entities;
+    private WorldImpl? world;
 
     private ServerServices Services => Context.Runtime.Service<ServerServices>();
 
@@ -37,6 +38,9 @@ public abstract class ServerScript : Script
 
     /// <summary>Vehicles and other things in the world.</summary>
     public IEntities Entities => entities ??= new EntitiesImpl(Context);
+
+    /// <summary>The in-game clock and weather, the same for every player.</summary>
+    public IWorld World => world ??= new WorldImpl(Context);
 }
 
 /// <summary>Server-side events.</summary>

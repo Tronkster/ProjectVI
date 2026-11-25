@@ -28,6 +28,9 @@ public static class ServerEvents
     /// </summary>
     public const string PlayerChat = "playerChat";
 
+    /// <summary>The weather changed. Arguments: <c>string weather, string previous</c>.</summary>
+    public const string WeatherChanged = "weatherChanged";
+
     /// <summary>A resource started. Arguments: <c>string resource</c>.</summary>
     public const string ResourceStarted = "resourceStarted";
 

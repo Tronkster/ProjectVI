@@ -81,7 +81,8 @@ const RELIABLE_MORE = 1; // message flag: more fragments of the same message fol
 const CHANNEL = Object.freeze({
   CHAT: 1, // client -> server: a chat line or /command. server -> client: a chat line from a player
   EVENT: 2, // both ways: a script event, name and JSON arguments
-  NOTICE: 3 // server -> client: a message to show the player
+  NOTICE: 3, // server -> client: a message to show the player
+  WORLD: 4 // server -> client: the in-game clock and weather, on joining and whenever they change
 });
 
 function header(type, size) {
@@ -389,6 +390,22 @@ function encodeChat({ playerId = 0, text }) {
 
 const encodeChannelNotice = ({ text }) => channelText(CHANNEL.NOTICE, 0, text, 500);
 
+// The clock was `clock` in-game seconds after midnight at server time `serverTime` (ms), and runs at `scale`
+// in-game seconds per real second (0: stopped). transition: seconds to blend into `weather` (0: at once).
+function encodeWorld({ serverTime, clock, scale, weather, transition }) {
+  const name = Buffer.from(String(weather), "utf8");
+  if (name.length > 255) throw new Error("Weather names can be at most 255 bytes.");
+  const buf = Buffer.alloc(1 + 4 + 4 + 4 + 4 + 1 + name.length);
+  buf.writeUInt8(CHANNEL.WORLD, 0);
+  buf.writeUInt32LE(serverTime >>> 0, 1);
+  buf.writeFloatLE(clock, 5);
+  buf.writeFloatLE(scale, 9);
+  buf.writeFloatLE(transition, 13);
+  buf.writeUInt8(name.length, 17);
+  name.copy(buf, 18);
+  return buf;
+}
+
 // args: an array, sent as JSON.
 function encodeEvent({ name, args = [] }) {
   const nameBytes = Buffer.from(String(name), "utf8");
@@ -416,6 +433,16 @@ function decodeChannelMessage(buf) {
     const text = readText(buf, 1, 2);
     if (!text || text.next !== buf.length) return null;
     return { kind, text: text.text };
+  }
+  if (kind === CHANNEL.WORLD) {
+    if (buf.length < 18) return null;
+    const weather = readText(buf, 17, 1);
+    if (!weather || weather.next !== buf.length) return null;
+    const clock = buf.readFloatLE(5);
+    const scale = buf.readFloatLE(9);
+    const transition = buf.readFloatLE(13);
+    if (![clock, scale, transition].every(Number.isFinite)) return null;
+    return { kind, serverTime: buf.readUInt32LE(1), clock, scale, transition, weather: weather.text };
   }
   if (kind === CHANNEL.EVENT) {
     const name = readText(buf, 1, 1);
@@ -685,6 +712,7 @@ module.exports = {
   encodeChat,
   encodeChannelNotice,
   encodeEvent,
+  encodeWorld,
   decodeChannelMessage,
   decodeSync: decode,
   seqNewer,

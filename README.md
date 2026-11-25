@@ -48,7 +48,7 @@
 
 ## Overview
 
-GTA VI on PC means the Xbox Series version running through emulation, and it only has the story mode. ProjectVI adds multiplayer on top of it. Every player runs their own copy of the game; ProjectVI keeps the parts they share in step. Today that is players, vehicles, roles, chat and script events. Next come the time of day, the weather and, step by step, the story itself.
+GTA VI on PC means the Xbox Series version running through emulation, and it only has the story mode. ProjectVI adds multiplayer on top of it. Every player runs their own copy of the game; ProjectVI keeps the parts they share in step. Today that is players, vehicles, roles, chat, script events, the time of day and the weather. Next comes, step by step, the story itself.
 
 ## Features
 
@@ -85,6 +85,7 @@ GTA VI on PC means the Xbox Series version running through emulation, and it onl
 - Vehicle ids from the server, one client simulating each vehicle, hand-over between players
 - A host role, and the story's characters (Lucia and Jason) given out so nobody sees two of the same
 - A reliable channel for chat, `/commands`, notices and script events
+- The time of day and weather decided by the server, with an optional weather cycle
 
 </td>
 <td width="50%" valign="top">
@@ -126,6 +127,7 @@ GTA VI on PC means the Xbox Series version running through emulation, and it onl
 | Game server: config, resources, C# scripting, content hosting, listing | ✅ Works |
 | Player sync: players, vehicles, host and characters | ✅ Server and reference client, tested with bots |
 | Reliable messages: chat, commands, notices, script events | ✅ Server and reference client, tested at 20% packet loss |
+| Time of day and weather | ✅ Server, scripts (C#), console and reference client |
 | **Game client: joining from inside the game** | ❌ Not started. Waiting for the game to render under the emulator |
 
 ## How it works
@@ -235,7 +237,7 @@ Tag a version, for example `git tag v0.5.0 && git push --tags`. The Release work
 
 ## Roadmap
 
-1. **One world (milestone A).** Everyone in the same world as the story's characters, with the story switched off. Player and vehicle sync, roles, chat and events are done; server time and weather, damage and join tickets are next.
+1. **One world (milestone A).** Everyone in the same world as the story's characters, with the story switched off. Player and vehicle sync, roles, chat, events, time and weather are done; damage and join tickets are next.
 2. **The game client.** A module the emulator loads beside the game, running the same protocol. Blocked until the game renders under the emulator.
 3. **A shared story (milestone B).** The host's game runs the story; mission characters, vehicles and events stream to the other players, and progress comes from the host's save.
 

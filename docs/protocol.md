@@ -221,17 +221,22 @@ Payload kinds, the first byte of a message:
 | `CHAT` 1 | both ways | player id (16 bits; 0 from a client), text (16-bit length, at most 500 characters) |
 | `EVENT` 2 | both ways | name (8-bit length), then the arguments as a JSON array |
 | `NOTICE` 3 | server → client | text (16-bit length) |
+| `WORLD` 4 | server → client | server time (ms), clock (in-game seconds after midnight, float), scale (in-game seconds per real second, float; 0 stopped), transition (seconds, float), weather (8-bit length) |
 
 Server rules for what clients send:
 
 - **Chat:** a line starting with `/` runs that command as the player (permissions are checked) and the reply comes
   back as a notice. Any other line goes to scripts as `playerChat` (`Player player, string message`) and to every
-  player, the sender included. Up to 5 lines a second.
+  player, the sender included. 5 lines a second on average, in bursts of up to 10 (messages held up by a lost
+  packet arrive together); beyond that, lines are dropped and the player gets a notice.
 - **Events** go only to `[NetEvent]` handlers, with the player as the source. Names are 1-64 letters, digits and
-  `_ . : -`; events are at most 16 KB and 50 a second; arguments that contain `{"$player": …}` are refused, so a
+  `_ . : -`; events are at most 16 KB, 50 a second on average in bursts of up to 100; arguments that contain `{"$player": …}` are refused, so a
   client can't hand a script some other player.
 - **Events for players:** scripts emit them with a client target (one player or all). An event bigger than 16 KB
   isn't sent.
+- **Clock and weather:** the server sends `WORLD` to each player as they join (transition 0) and to everyone whenever
+  the time, time scale or weather changes. The clock was `clock` at `serverTime` and keeps running at `scale`, so
+  clients work out the current time themselves; nothing is sent while it simply runs.
 
 Client side. `packages/shared/sync-client.js` is the reference client: the bots (`npm run dev:bots`) use it, and the
 game client should behave the same way.
@@ -249,6 +254,9 @@ game client should behave the same way.
   silence.
 - Simulate and report the vehicles `VEHICLES` says you control; draw the rest. Don't spawn a second copy of a vehicle
   you registered: `VEHICLE_ASSIGN` tells you which id is yours.
+- Show the server's time and weather, never your own game's: on `WORLD`, set the clock and keep it running at
+  `scale` (`gameTime()` in the reference client). Blend into the weather over `transition` seconds only when its name
+  changed: a `WORLD` sent because the time changed must not cut a blend in progress short.
 - When the roster gives you a character, switch your player to it (0: keep your own look). Run the story only while
   you are the host.
 - Send reliable messages, acknowledgements and resends with every `STATE`, as soon as a message is queued, and as
