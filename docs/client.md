@@ -25,7 +25,8 @@ the emulator (`client/`, Node, shipped inside the launcher), not code loaded int
 
 ## The bridge (VIctory side)
 
-Implemented in VIctory, `crates/victory-bridge` (GPL-3.0, in the VIctory repository). Newline-delimited JSON, one
+Implemented in VIctory, `crates/victory-bridge` (GPL-3.0), for now on the `feat/projectvi-bridge` branch of the
+fork https://github.com/Tronkster/VIctory, not in upstream VIctory. Newline-delimited JSON, one
 object per line, at most 64 KB:
 
 - Request: `{"id": 1, "op": "player.read", "args": {…}}`
