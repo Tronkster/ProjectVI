@@ -31,7 +31,7 @@ test("info, manifest and files are served", async () => {
     const info = await (await fetch(`${s.base}/info`)).json();
     assert.deepEqual(info, {
       name: "Test", protocol: 1, contentBytes: 5, fileCount: 1, players: 0, maxPlayers: 8,
-      sync: { version: 1, port: 30120, tickRate: 20 }
+      sync: { version: 2, port: 30120, tickRate: 20 }
     });
 
     const manifest = await (await fetch(`${s.base}/manifest`)).json();

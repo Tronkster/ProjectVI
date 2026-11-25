@@ -23,6 +23,7 @@ start = ["jobs", "welcome", "hud"]
 # tick_rate = 20          # updates a second, each way
 # stream_radius = 500     # metres: players farther apart than this don't see each other
 # timeout_seconds = 10    # a player who sends nothing for this long is dropped
+# characters = ["lucia", "jason"]  # story characters, given out in join order; later players keep their own look
 
 [scripting]
 # dotnet_host = ""        # path to ProjectVI.ScriptHost; empty uses this repository's build

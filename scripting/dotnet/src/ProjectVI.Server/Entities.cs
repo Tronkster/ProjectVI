@@ -6,7 +6,8 @@ namespace ProjectVI.Server;
 
 /// <summary>
 /// Something in the game world, such as a vehicle.
-/// Simulated by the server core until the ProjectVI client exists; the API stays the same.
+/// Vehicles are sent to players over sync. Vehicles that players' clients registered themselves have a model hash
+/// instead of a name, for example <c>"0x39da2754"</c>.
 /// </summary>
 public sealed record Entity(
     [property: JsonPropertyName("id")] int Id,
@@ -18,7 +19,10 @@ public sealed record Entity(
 /// <summary>Creates and removes things in the world. Entities a resource creates are removed when it stops.</summary>
 public interface IEntities
 {
-    /// <summary>Spawns a vehicle, for example <c>"taxi"</c>, at a position facing <paramref name="heading"/> degrees.</summary>
+    /// <summary>
+    /// Spawns a vehicle, for example <c>"taxi"</c> or a hash such as <c>"0x39da2754"</c>, at a position facing
+    /// <paramref name="heading"/> degrees.
+    /// </summary>
     Task<Entity> SpawnVehicleAsync(string model, Vector3 position, float heading = 0);
 
     /// <summary>Every entity in the world.</summary>

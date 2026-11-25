@@ -118,44 +118,94 @@ The launcher stores server content but never runs it. Running it is the ProjectV
 ## Player sync (UDP on the game port)
 
 `GET /projectvi/info` includes `sync: { version, port, tickRate }` when sync is on. The format is defined in
-`packages/shared/sync.js`, which both sides use. Every packet starts with `"PV"`, the sync version (1) and a type
-byte; numbers are little-endian, floats 32-bit, and packets stay under 1,200 bytes.
+`packages/shared/sync.js`, which both sides use, and `packages/shared/test/sync-vectors.json` has an example packet
+of each kind for clients written in other languages. Every packet starts with `"PV"`, the sync version (2) and a
+type byte; numbers are little-endian, floats 32-bit, and packets stay under 1,200 bytes. A packet of another version
+is ignored.
 
 | Type | Direction | Contents |
 | --- | --- | --- |
 | `HELLO` 1 | client → server | nonce, name. Resent until answered; a repeat gets the same session |
 | `WELCOME` 2 | server → client | nonce, session, player id, tick rate, server time (ms) |
 | `REJECT` 3 | server → client | nonce, reason (bad name, server full) |
-| `STATE` 4 | client → server | session, sequence, client time, then the state below. Every tick |
-| `SNAPSHOT` 5 | server → client | tick, server time, roster version, then up to 31 × (player id, sequence, state). Every tick, split over several packets if needed |
+| `STATE` 4 | client → server | session, sequence, client time, then a player state. Every tick |
+| `SNAPSHOT` 5 | server → client | tick, server time, roster version, then up to 19 × (player id, sequence, player state). Every tick, split over several packets if needed |
 | `ROSTER_REQUEST` 6 | client → server | session. Sent when a snapshot's roster version changes |
-| `ROSTER` 7 | server → client | roster version, page, pages, then (player id, name) pairs |
+| `ROSTER` 7 | server → client | roster version, page, pages, then per player: id, flags (1 host), character model hash (0: none), name |
 | `BYE` 8 | client → server | session |
 | `KICK` 9 | server → client | reason |
 | `NOTICE` 10 | server → client | text to show the player |
+| `VEHICLE_STATE` 11 | client → server | session, sequence, vehicle id, local id, then a vehicle state. Every tick for each vehicle the client controls |
+| `VEHICLES` 12 | server → client | tick, server time, then up to 22 × (vehicle id, controlling player id or 0, vehicle state). Every tick there are vehicles near the player |
+| `VEHICLE_ASSIGN` 13 | server → client | local id, vehicle id. The answer to a `VEHICLE_STATE` with vehicle id 0 |
+| `PING` 14 | client → server | session, client time, the client's last round trip in ms (0 before the first) |
+| `PONG` 15 | server → client | the client time from `PING`, server time |
 
-State: position (x, y, z), velocity (x, y, z), heading in degrees, flags (1 in vehicle, 2 moving on foot,
-4 aiming, 8 dead), vehicle model hash, seat.
+Player state (56 bytes): position (x, y, z), velocity (x, y, z), heading in degrees (0 = north, counter-clockwise),
+flags (16 bits), model hash (0: each client picks), health (16 bits), armour (8 bits), weapon hash, aim point
+(x, y, z; meaningful while aiming), vehicle id (0: none), seat (0 = driver, 1 and up passengers).
+Flags: 1 in vehicle, 2 moving on foot, 4 aiming, 8 dead, 16 crouched, 32 jumping, 64 ragdoll, 128 shooting,
+256 swimming.
+
+Vehicle state (48 bytes): model hash, position (x, y, z), rotation as a quaternion (x, y, z, w), velocity (x, y, z),
+health (16 bits), steering (signed byte: 127 full left, -127 full right), flags (1 engine on, 2 lights, 4 siren,
+8 horn, 16 destroyed). Models and weapons are joaat hashes of their names (`joaat` in `@projectvi/shared`).
 
 Server rules:
 
 - Packets after `HELLO` must carry the session and come from the address that joined; anything else is ignored.
 - States with an older sequence (16-bit, wrapping), non-finite numbers, coordinates beyond ±50,000 or speeds over
-  250 m/s are dropped. Up to 90 states a second per player; 5 `HELLO`s a second per IP.
-- Players only receive others within `[sync] stream_radius` (500 m by default). A player silent for
+  250 m/s are dropped, and so are vehicle states whose rotation isn't close to a unit quaternion. Up to 90 player
+  states and 1,000 vehicle states a second per player; 5 `HELLO`s a second per IP; one `PING` every 200 ms.
+- Players only receive others, and vehicles, within `[sync] stream_radius` (500 m by default). A player silent for
   `timeout_seconds` (10) is dropped and sent `KICK`.
 - Nothing on this channel is reliable. Identity isn't verified yet: a player's only identifier is `session:<hex>`.
-- Clients should render others about 100 ms in the past and interpolate; `createInterpolator` in the same file
-  does this.
+- The round trip a client reports in `PING` is what scripts get from `player.ping`. It's for display: a client
+  can report anything.
+
+Host and characters (milestone A: everyone in one world as the story's characters, story scripts off):
+
+- The player who joined first is the host. When the host leaves, the player who has been connected longest takes
+  over. Later, only the host's game will run the story, and mission characters and objects will stay with the host.
+- The server gives out `[sync] characters` (`["lucia", "jason"]` by default) in join order: the first player gets
+  the first character. A character freed by someone leaving goes to the earliest player without one. Players beyond
+  the list get 0 and keep their own look.
+- Both travel in `ROSTER`, which changes version whenever they change. A client switches its own player to its
+  character, and if the game keeps the other character around as an AI companion, removes that companion and uses
+  the other player in its place, so nobody sees two of the same character.
+- In relayed player states, the server replaces the reported model with the player's character, so everyone draws
+  them the same way. Scripts get both from `player.character` and `player.isHost`.
+
+Vehicles:
+
+- Every vehicle has a 16-bit id. Ids count up and wrap, skipping ones in use, so a removed vehicle's id isn't
+  reused soon. Scripts spawn vehicles with `entities.spawnVehicle`; clients register their own (a parked car the
+  player got into) by sending `VEHICLE_STATE` with vehicle id 0 and a local id of their choosing (1-65535). The
+  server answers every such packet with `VEHICLE_ASSIGN`, so a lost answer is fixed by the next packet. A player can
+  have 8 registered vehicles; a registered vehicle nobody has been within the stream radius of for 60 s is removed.
+  Script vehicles stay until the script removes them or its resource stops.
+- Each vehicle is simulated by one client, its controller, shown in `VEHICLES`. Only the controller's
+  `VEHICLE_STATE` for it is accepted; sequence numbers are per vehicle and start over when the controller changes.
+- A player whose `STATE` has the in-vehicle flag, a vehicle id and seat 0 claims the driver's seat. The first claim
+  of a free seat wins, and the driver controls the vehicle. An empty vehicle stays with its controller while they're
+  within 150 m of it, then goes to the nearest player in range, or nobody.
 
 Client side. `packages/shared/sync-client.js` is the reference client: the bots (`npm run dev:bots`) use it, and the
 game client should behave the same way.
 
 - Resend `HELLO` every 500 ms, up to 10 times, with the same nonce.
-- Render others two snapshot intervals in the past (at least 100 ms).
+- Render others two snapshot intervals in the past (at least 100 ms). Blend vehicle rotations the short way round
+  (flip one quaternion when their dot product is negative) and hold the rotation when extrapolating.
 - Estimate the server clock as local time plus the largest (snapshot server time − local arrival time) of the last
-  40 snapshots: the packet that waited least.
+  40 snapshots: the packet that waited least. Use this clock for drawing, not one corrected by the round trip,
+  which would leave nothing to blend towards whenever the one-way delay is longer than the render delay.
 - Send `ROSTER_REQUEST` when a snapshot's roster version differs from the roster you have. Pages can arrive in any
   order, and the answer may be for a newer version than the one asked for. Ask again after 1 s if a page is missing.
-- Drop a player missing from snapshots for 1 s (out of range or gone). Give up on the server after 10 s of silence.
-- Send `BYE` when leaving.
+- Drop a player or vehicle missing from updates for 1 s (out of range or gone). A known vehicle id that arrives with
+  another model is a different vehicle: remove the old one and spawn the new one. Give up on the server after 10 s of
+  silence.
+- Simulate and report the vehicles `VEHICLES` says you control; draw the rest. Don't spawn a second copy of a vehicle
+  you registered: `VEHICLE_ASSIGN` tells you which id is yours.
+- When the roster gives you a character, switch your player to it (0: keep your own look). Run the story only while
+  you are the host.
+- Send `PING` once a second and `BYE` when leaving.

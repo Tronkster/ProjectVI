@@ -9,7 +9,7 @@ const shared = require("@projectvi/shared");
 const quietLog = { info() {}, warn() {}, error() {}, debug() {} };
 
 function state(x, y = 0, extra = {}) {
-  return { position: { x, y, z: 10 }, velocity: { x: 0, y: 0, z: 0 }, heading: 0, flags: 0, vehicleModel: 0, seat: 0, ...extra };
+  return { position: { x, y, z: 10 }, velocity: { x: 0, y: 0, z: 0 }, heading: 0, flags: 0, model: 0, health: 200, armour: 0, weapon: 0, aim: { x: 0, y: 0, z: 0 }, vehicleId: 0, seat: 0, ...extra };
 }
 
 async function startServer(options = {}) {
@@ -215,6 +215,217 @@ test("more nearby players than fit in one packet are split across snapshots", as
     assert.equal(first.tick, second.tick);
   } finally {
     await viewer.close();
+    await s.close();
+  }
+});
+
+function vehicle(x, y = 0, extra = {}) {
+  return { model: shared.joaat("sultan"), position: { x, y, z: 10 }, rotation: shared.quatFromHeading(90), velocity: { x: 0, y: 0, z: 0 }, health: 1000, steering: 0, flags: 0, ...extra };
+}
+
+test("a client registers a vehicle by local id, reports it, and others see it with its controller", async () => {
+  const s = await startServer();
+  const a = await client(s.port);
+  const b = await client(s.port);
+  try {
+    const wa = await a.join("Ana");
+    const wb = await b.join("Ben");
+    await a.send(shared.encodeState({ session: wa.session, seq: 1, clientTime: 0, state: state(0) }));
+    await b.send(shared.encodeState({ session: wb.session, seq: 1, clientTime: 0, state: state(50) }));
+
+    // A lost VEHICLE_ASSIGN is fixed by the next packet, which gets the same id.
+    await a.send(shared.encodeVehicleState({ session: wa.session, seq: 1, vehicleId: 0, localId: 3, state: vehicle(10) }));
+    const assign = await a.next(a.of(shared.SYNC_MSG.VEHICLE_ASSIGN));
+    await a.send(shared.encodeVehicleState({ session: wa.session, seq: 2, vehicleId: 0, localId: 3, state: vehicle(11) }));
+    assert.equal((await a.next(a.of(shared.SYNC_MSG.VEHICLE_ASSIGN))).vehicleId, assign.vehicleId);
+    assert.equal(assign.localId, 3);
+    assert.equal(s.sync.stats().vehicles, 1);
+
+    // Scripts see it like any other entity, with the model as a hash string.
+    const [listed] = s.core.callNative("test", "entities.list", []);
+    assert.deepEqual(listed, { id: assign.vehicleId, kind: "vehicle", model: "0x39da2754", position: { x: 11, y: 0, z: 10 }, heading: 90 });
+
+    const report = (who, session, seq, st) => who.send(shared.encodeVehicleState({ session, seq, vehicleId: assign.vehicleId, localId: 0, state: st }));
+    await report(b, wb.session, 50, vehicle(99)); // not Ben's to report
+    await report(a, wa.session, 3, vehicle(20, 0, { steering: 1 }));
+    await report(a, wa.session, 2, vehicle(30)); // older
+    await report(a, wa.session, 4, vehicle(40, 0, { rotation: { x: 0, y: 0, z: 0, w: 0 } })); // not a rotation
+    await settle();
+    s.sync.step();
+
+    const seen = await b.next(b.of(shared.SYNC_MSG.VEHICLES));
+    assert.equal(seen.entries.length, 1);
+    assert.equal(seen.entries[0].vehicleId, assign.vehicleId);
+    assert.equal(seen.entries[0].controller, wa.playerId);
+    assert.equal(seen.entries[0].state.position.x, 20);
+    assert.equal(seen.entries[0].state.steering, 1);
+    assert.equal(seen.entries[0].state.model, shared.joaat("sultan"));
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+    await s.close();
+  }
+});
+
+test("the driver controls a vehicle; an empty one stays with its controller nearby, then goes to the nearest player", async () => {
+  const s = await startServer({ vehicleHandover: 60 });
+  const a = await client(s.port);
+  const b = await client(s.port);
+  try {
+    const wa = await a.join("Ana");
+    const wb = await b.join("Ben");
+    let seqA = 0;
+    let seqB = 0;
+    const moveA = (st) => a.send(shared.encodeState({ session: wa.session, seq: ++seqA, clientTime: 0, state: st }));
+    const moveB = (st) => b.send(shared.encodeState({ session: wb.session, seq: ++seqB, clientTime: 0, state: st }));
+    const { id } = s.core.callNative("test", "entities.spawnVehicle", ["sultan", { x: 0, y: 0, z: 10 }, 0]);
+    const controller = () => s.core.entities.get(id).controller;
+
+    await moveA(state(5));
+    await moveB(state(40));
+    await settle();
+    s.sync.step();
+    assert.equal(controller(), wa.playerId); // nearest
+
+    const driving = { flags: shared.SYNC_FLAG.IN_VEHICLE, vehicleId: id, seat: 0 };
+    await moveB(state(0, 0, driving));
+    await settle();
+    await moveA(state(0, 0, driving)); // the seat is taken
+    await settle();
+    s.sync.step();
+    assert.equal(s.core.entities.get(id).driver, wb.playerId);
+    assert.equal(controller(), wb.playerId);
+
+    await moveB(state(3)); // gets out; still close, so keeps control
+    await moveA(state(5));
+    await settle();
+    s.sync.step();
+    assert.equal(s.core.entities.get(id).driver, 0);
+    assert.equal(controller(), wb.playerId);
+
+    await moveB(state(90)); // walks away past the handover distance
+    await settle();
+    s.sync.step();
+    assert.equal(controller(), wa.playerId);
+
+    // A driver who disconnects gives the vehicle up.
+    await moveA(state(0, 0, driving));
+    await settle();
+    s.sync.step();
+    assert.equal(s.core.entities.get(id).driver, wa.playerId);
+    await a.send(shared.encodeBye({ session: wa.session }));
+    await settle();
+    s.sync.step();
+    assert.equal(s.core.entities.get(id).driver, 0);
+    assert.equal(controller(), wb.playerId); // the only player left in range
+  } finally {
+    await Promise.all([a.close(), b.close()]);
+    await s.close();
+  }
+});
+
+test("registered vehicles are limited per player and removed once nobody has been near; script vehicles stay", async () => {
+  const s = await startServer({ maxVehiclesPerPlayer: 2, vehicleIdleSeconds: 60 });
+  const a = await client(s.port);
+  try {
+    const wa = await a.join("Ana");
+    let seq = 0;
+    const move = (x) => a.send(shared.encodeState({ session: wa.session, seq: ++seq, clientTime: 0, state: state(x) }));
+    await move(0);
+    for (const localId of [1, 2, 3]) await a.send(shared.encodeVehicleState({ session: wa.session, seq: localId, vehicleId: 0, localId, state: vehicle(localId) }));
+    await settle();
+    assert.deepEqual(a.inbox.filter((m) => m.type === shared.SYNC_MSG.VEHICLE_ASSIGN).map((m) => m.localId), [1, 2]);
+    s.core.callNative("test", "entities.spawnVehicle", ["taxi", { x: 0, y: 0, z: 10 }, 0]);
+    s.sync.step();
+    assert.equal(s.sync.stats().vehicles, 3);
+
+    await move(5000); // nobody near the vehicles from now on
+    await settle();
+    s.sync.step();
+    s.advance(59_000);
+    await move(5000);
+    await settle();
+    s.sync.step();
+    assert.equal(s.sync.stats().vehicles, 3);
+    s.advance(2000);
+    await move(5000);
+    await settle();
+    s.sync.step();
+    assert.deepEqual(s.core.callNative("test", "entities.list", []).map((e) => e.model), ["taxi"]);
+  } finally {
+    await a.close();
+    await s.close();
+  }
+});
+
+test("PING gets a PONG and sets the player's ping for scripts, at most five times a second", async () => {
+  const s = await startServer();
+  const a = await client(s.port);
+  try {
+    const wa = await a.join("Ana");
+    assert.equal(s.core.callNative("test", "player.ping", [wa.playerId]), null);
+    await a.send(shared.encodePing({ session: wa.session, clientTime: 1234, rtt: 55 }));
+    const pong = await a.next(a.of(shared.SYNC_MSG.PONG));
+    assert.equal(pong.clientTime, 1234);
+    assert.equal(s.core.callNative("test", "player.ping", [wa.playerId]), 55);
+    await a.send(shared.encodePing({ session: wa.session, clientTime: 1235, rtt: 1 })); // too soon
+    await settle();
+    assert.equal(a.inbox.filter((m) => m.type === shared.SYNC_MSG.PONG).length, 0);
+    assert.equal(s.core.callNative("test", "player.ping", [wa.playerId]), 55);
+  } finally {
+    await a.close();
+    await s.close();
+  }
+});
+
+test("entity ids count up and wrap past 65535, skipping ids in use; models become wire hashes", () => {
+  const { modelHash } = require("../src/core/server-core");
+  const config = validateConfig({ server: { name: "Ids" } });
+  const core = new ServerCore({ config, log: quietLog, store: null });
+  const first = core.spawnEntity("test", "vehicle", "sultan", { x: 0, y: 0, z: 0 }, 0);
+  core.nextEntityId = 0xffff;
+  assert.equal(core.spawnEntity("test", "vehicle", "sultan", { x: 0, y: 0, z: 0 }, 0).id, 0xffff);
+  assert.equal(core.spawnEntity("test", "vehicle", "sultan", { x: 0, y: 0, z: 0 }, 0).id, first.id + 1); // 1 is taken
+  assert.equal(modelHash("sultan"), 0x39da2754);
+  assert.equal(modelHash("0x39DA2754"), 0x39da2754);
+  assert.equal(modelHash("970598228"), 970598228);
+  assert.equal(core.spawnEntity("test", "vehicle", "taxi", { x: 1, y: 2, z: 3 }, 450).heading, 90);
+});
+
+test("the first player is host and story characters go out in join order; leaving passes both on", async () => {
+  const s = await startServer({ characters: ["lucia", "jason"] });
+  const a = await client(s.port);
+  const b = await client(s.port);
+  const c = await client(s.port);
+  try {
+    const wa = await a.join("Ana");
+    const wb = await b.join("Ben");
+    const wc = await c.join("Cyd");
+    const native = (name, id) => s.core.callNative("test", name, [id]);
+    assert.deepEqual([native("player.isHost", wa.playerId), native("player.isHost", wb.playerId), native("player.isHost", wc.playerId)], [true, false, false]);
+    assert.deepEqual([wa, wb, wc].map((w) => native("player.character", w.playerId)), [shared.joaat("lucia"), shared.joaat("jason"), 0]);
+
+    await c.send(shared.encodeRosterRequest({ session: wc.session }));
+    const roster = await c.next(c.of(shared.SYNC_MSG.ROSTER));
+    assert.deepEqual(roster.players.map((p) => [p.name, p.character, p.host]), [["Ana", shared.joaat("lucia"), true], ["Ben", shared.joaat("jason"), false], ["Cyd", 0, false]]);
+
+    // A character replaces the model the client reports; without one, the client's own model is relayed.
+    await b.send(shared.encodeState({ session: wb.session, seq: 1, clientTime: 0, state: state(1, 0, { model: 0x1234 }) }));
+    await c.send(shared.encodeState({ session: wc.session, seq: 1, clientTime: 0, state: state(2, 0, { model: 0x5555 }) }));
+    await a.send(shared.encodeState({ session: wa.session, seq: 1, clientTime: 0, state: state(0) }));
+    await settle();
+    s.sync.step();
+    const snap = await a.next(a.of(shared.SYNC_MSG.SNAPSHOT));
+    assert.deepEqual(snap.entries.map((e) => [e.playerId, e.state.model]), [[wb.playerId, shared.joaat("jason")], [wc.playerId, 0x5555]]);
+
+    // The host leaves: Ben takes over as host and keeps Jason; Cyd gets the freed Lucia.
+    await a.send(shared.encodeBye({ session: wa.session }));
+    await settle();
+    assert.equal(s.sync.stats().host, wb.playerId);
+    assert.equal(native("player.character", wb.playerId), shared.joaat("jason"));
+    assert.equal(native("player.character", wc.playerId), shared.joaat("lucia"));
+    assert.notEqual(s.sync.rosterVersion, roster.rosterVersion);
+  } finally {
+    await Promise.all([a.close(), b.close(), c.close()]);
     await s.close();
   }
 });

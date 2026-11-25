@@ -6,7 +6,7 @@ const { ServerCore } = require("../src/core/server-core");
 const { validateConfig } = require("../src/config");
 const { createMover, createBot, headingOf } = require("../scripts/bots");
 const { SyncClient } = require("@projectvi/shared/sync-client");
-const { SYNC_FLAG } = require("@projectvi/shared");
+const { SYNC_FLAG, headingFromQuat, joaat } = require("@projectvi/shared");
 
 const quietLog = { info() {}, warn() {}, error() {}, debug() {} };
 
@@ -14,7 +14,7 @@ const quietLog = { info() {}, warn() {}, error() {}, debug() {} };
 async function startServer(streamRadius = 200) {
   const config = validateConfig({ server: { name: "Bots test", max_players: 8 } });
   const core = new ServerCore({ config, log: quietLog, store: null });
-  const sync = new SyncServer({ core, log: quietLog, tickRate: 20, streamRadius, maxPlayers: config.maxPlayers });
+  const sync = new SyncServer({ core, log: quietLog, tickRate: 20, streamRadius, maxPlayers: config.maxPlayers, characters: ["lucia", "jason"] });
   const port = await sync.listen(0, "127.0.0.1");
   return { core, sync, port };
 }
@@ -41,13 +41,19 @@ test("movers stay in their area at believable speeds", () => {
   for (const mode of ["walk", "drive", "idle"]) {
     const mover = createMover({ mode, center, spread: 80, random: seeded(7) });
     for (let i = 0; i < 2000; i++) {
-      const s = mover.step(0.05);
+      const { player: s, vehicle } = mover.step(0.05);
       const away = Math.hypot(s.position.x - center.x, s.position.y - center.y);
       const speed = Math.hypot(s.velocity.x, s.velocity.y);
       assert.ok(away <= 80 + 1e-6, `${mode} wandered ${away} m away`);
       assert.equal(s.position.z, 12);
       if (mode === "walk") assert.ok(speed <= 5 && (speed === 0) === !(s.flags & SYNC_FLAG.ON_FOOT_MOVING));
-      if (mode === "drive") assert.ok(speed >= 12 && speed <= 28 && s.flags === SYNC_FLAG.IN_VEHICLE && s.vehicleModel !== 0);
+      if (mode === "drive") {
+        assert.ok(speed >= 12 && speed <= 28 && s.flags === SYNC_FLAG.IN_VEHICLE && s.seat === 0);
+        assert.deepEqual(vehicle.position, s.position);
+        assert.ok(Math.abs(headingFromQuat(vehicle.rotation) - s.heading) < 1e-6);
+      } else {
+        assert.equal(vehicle, null);
+      }
       if (mode === "idle") assert.equal(speed, 0);
       if (speed > 0) assert.ok(Math.abs(s.heading - headingOf(s.velocity.x, s.velocity.y)) < 1e-9);
     }
@@ -58,7 +64,14 @@ test("bots join a real server and another client sees them, by name, close to wh
   const s = await startServer();
   const center = { x: 0, y: 0, z: 10 };
   // A bot walking east at a steady 5 m/s makes the expected view easy to check.
-  const east = { x: 0, step(dt) { this.x += 5 * dt; return { position: { x: this.x, y: 0, z: 10 }, velocity: { x: 5, y: 0, z: 0 }, heading: 270, flags: SYNC_FLAG.ON_FOOT_MOVING, vehicleModel: 0, seat: 0 }; } };
+  const east = {
+    x: 0,
+    step(dt) {
+      this.x += 5 * dt;
+      const player = { position: { x: this.x, y: 0, z: 10 }, velocity: { x: 5, y: 0, z: 0 }, heading: 270, flags: SYNC_FLAG.ON_FOOT_MOVING };
+      return { player: { ...player, model: 0, health: 200, armour: 0, weapon: 0, aim: { x: 0, y: 0, z: 0 }, vehicleId: 0, seat: 0 }, vehicle: null };
+    }
+  };
   const bots = [
     createBot({ host: "127.0.0.1", port: s.port, name: "Walker", mover: east }),
     createBot({ host: "127.0.0.1", port: s.port, name: "Driver", mover: createMover({ mode: "drive", center, spread: 100, random: seeded(1) }) }),
@@ -69,15 +82,31 @@ test("bots join a real server and another client sees them, by name, close to wh
     await Promise.all(bots.map((b) => b.start()));
     await observer.connect();
     const roster = once(observer, "roster");
-    observer.sendState({ position: center, velocity: { x: 0, y: 0, z: 0 }, heading: 0, flags: 0, vehicleModel: 0, seat: 0 });
+    const still = { position: center, velocity: { x: 0, y: 0, z: 0 }, heading: 0, flags: 0, model: 0, health: 200, armour: 0, weapon: 0, aim: center, vehicleId: 0, seat: 0 };
+    observer.sendState(still);
     await roster;
     await wait(600);
-    observer.sendState({ position: center, velocity: { x: 0, y: 0, z: 0 }, heading: 0, flags: 0, vehicleModel: 0, seat: 0 });
+    observer.sendState(still);
 
     assert.equal(s.core.players.list().length, 4);
     const seen = new Map(observer.view().map((v) => [v.name, v.state]));
     assert.deepEqual([...seen.keys()].sort(), ["Driver", "Walker"]); // Far is outside the stream radius
     assert.ok(seen.get("Driver").flags & SYNC_FLAG.IN_VEHICLE);
+
+    // The driver registered its car: the observer sees it, controlled by the driver, who sits in it.
+    const carId = bots[1].client.vehicleIdFor(1);
+    assert.ok(carId > 0);
+    assert.equal(seen.get("Driver").vehicleId, carId);
+    const cars = observer.vehicleView();
+    assert.deepEqual(cars.map((c) => [c.id, c.controller, c.mine]), [[carId, bots[1].client.playerId, false]]);
+    // The two bots that joined first are Lucia and Jason; one of them is the host. The observer joined last.
+    const characters = bots.map((b) => b.client.character).filter(Boolean).sort();
+    assert.deepEqual(characters, [joaat("jason"), joaat("lucia")].sort());
+    assert.equal(observer.character, 0);
+    const host = bots.find((b) => b.client.isHost);
+    assert.equal(observer.hostId, host.client.playerId);
+    if (host.name !== "Far") assert.equal(seen.get(host.name).model, host.client.character);
+    assert.ok(Math.hypot(cars[0].state.position.x - seen.get("Driver").position.x, cars[0].state.position.y - seen.get("Driver").position.y) < 3);
 
     // The walker is drawn a little in the past: behind the real position, but not by much.
     const lag = bots[0].state.position.x - seen.get("Walker").position.x;

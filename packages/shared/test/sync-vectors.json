@@ -1,0 +1,215 @@
+{
+  "comment": "Example sync packets: each fields object encodes to exactly hex. For clients written in other languages; see docs/protocol.md.",
+  "version": 2,
+  "messages": [
+    {
+      "type": "HELLO",
+      "fields": {
+        "nonce": 305419896,
+        "name": "Kai"
+      },
+      "hex": "5056020178563412034b6169"
+    },
+    {
+      "type": "WELCOME",
+      "fields": {
+        "nonce": 305419896,
+        "session": 2882400001,
+        "playerId": 3,
+        "tickRate": 20,
+        "serverTime": 1234
+      },
+      "hex": "505602027856341201efcdab030014d2040000"
+    },
+    {
+      "type": "STATE",
+      "fields": {
+        "session": 2882400001,
+        "seq": 1,
+        "clientTime": 500,
+        "state": {
+          "position": {
+            "x": 1.5,
+            "y": -2.25,
+            "z": 30
+          },
+          "velocity": {
+            "x": 4,
+            "y": 0,
+            "z": -1
+          },
+          "heading": 90,
+          "flags": 1,
+          "model": 1885233650,
+          "health": 200,
+          "armour": 50,
+          "weapon": 2725352035,
+          "aim": {
+            "x": 10,
+            "y": 20,
+            "z": 30.5
+          },
+          "vehicleId": 7,
+          "seat": 0
+        }
+      },
+      "hex": "5056020401efcdab0100f40100000000c03f000010c00000f0410000804000000000000080bf0000b4420100f2615e70c80032639271a2000020410000a0410000f441070000"
+    },
+    {
+      "type": "SNAPSHOT",
+      "fields": {
+        "tick": 5,
+        "serverTime": 1250,
+        "rosterVersion": 2,
+        "entries": [
+          {
+            "playerId": 4,
+            "seq": 10,
+            "state": {
+              "position": {
+                "x": 1.5,
+                "y": -2.25,
+                "z": 30
+              },
+              "velocity": {
+                "x": 4,
+                "y": 0,
+                "z": -1
+              },
+              "heading": 90,
+              "flags": 1,
+              "model": 1885233650,
+              "health": 200,
+              "armour": 50,
+              "weapon": 2725352035,
+              "aim": {
+                "x": 10,
+                "y": 20,
+                "z": 30.5
+              },
+              "vehicleId": 7,
+              "seat": 0
+            }
+          }
+        ]
+      },
+      "hex": "5056020505000000e204000002000104000a000000c03f000010c00000f0410000804000000000000080bf0000b4420100f2615e70c80032639271a2000020410000a0410000f441070000"
+    },
+    {
+      "type": "VEHICLE_STATE",
+      "fields": {
+        "session": 2882400001,
+        "seq": 1,
+        "vehicleId": 0,
+        "localId": 1,
+        "state": {
+          "model": 970598228,
+          "position": {
+            "x": -1000.5,
+            "y": 230.25,
+            "z": 12
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0.5,
+            "w": 0.75
+          },
+          "velocity": {
+            "x": 0,
+            "y": 20,
+            "z": 0
+          },
+          "health": 1000,
+          "steering": -1,
+          "flags": 3
+        }
+      },
+      "hex": "5056020b01efcdab0100000001005427da3900207ac4004066430000404100000000000000000000003f0000403f000000000000a04100000000e8038103"
+    },
+    {
+      "type": "VEHICLES",
+      "fields": {
+        "tick": 5,
+        "serverTime": 1250,
+        "entries": [
+          {
+            "vehicleId": 7,
+            "controller": 3,
+            "state": {
+              "model": 970598228,
+              "position": {
+                "x": -1000.5,
+                "y": 230.25,
+                "z": 12
+              },
+              "rotation": {
+                "x": 0,
+                "y": 0,
+                "z": 0.5,
+                "w": 0.75
+              },
+              "velocity": {
+                "x": 0,
+                "y": 20,
+                "z": 0
+              },
+              "health": 1000,
+              "steering": -1,
+              "flags": 3
+            }
+          }
+        ]
+      },
+      "hex": "5056020c05000000e204000001070003005427da3900207ac4004066430000404100000000000000000000003f0000403f000000000000a04100000000e8038103"
+    },
+    {
+      "type": "VEHICLE_ASSIGN",
+      "fields": {
+        "localId": 1,
+        "vehicleId": 7
+      },
+      "hex": "5056020d01000700"
+    },
+    {
+      "type": "PING",
+      "fields": {
+        "session": 2882400001,
+        "clientTime": 500,
+        "rtt": 42
+      },
+      "hex": "5056020e01efcdabf40100002a00"
+    },
+    {
+      "type": "PONG",
+      "fields": {
+        "clientTime": 500,
+        "serverTime": 1240
+      },
+      "hex": "5056020ff4010000d8040000"
+    },
+    {
+      "type": "ROSTER",
+      "fields": {
+        "rosterVersion": 3,
+        "page": 0,
+        "pages": 1,
+        "players": [
+          {
+            "id": 3,
+            "name": "Kai",
+            "character": 2271560481,
+            "host": true
+          },
+          {
+            "id": 4,
+            "name": "Ana",
+            "character": 305419896,
+            "host": false
+          }
+        ]
+      },
+      "hex": "50560207030000000100020003000121436587034b61690400007856341203416e61"
+    }
+  ]
+}
