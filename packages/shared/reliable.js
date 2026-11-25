@@ -18,6 +18,10 @@ const MAX_QUEUE_BYTES = 256 * 1024; // unacknowledged data before the peer is co
 const INITIAL_RTO = 300; // ms before the first resend, until the round trip has been measured
 const MIN_RTO = 100;
 const MAX_RTO = 2000;
+// Each acknowledgement goes out on two polls in a row (now, and on the next tick). With a single one, a lost
+// acknowledgement waits for the next message to carry it, which both causes needless resends and inflates the
+// measured round trip, and with it every resend timer.
+const ACK_REPEATS = 2;
 
 class ReliableChannel {
   // now: a millisecond clock.
@@ -37,7 +41,7 @@ class ReliableChannel {
     this.held = new Map(); // seq -> message, arrived early
     this.partial = []; // fragments of the message being put back together
     this.partialBytes = 0;
-    this.ackDue = false;
+    this.acksOwed = 0;
   }
 
   // Queues a message (a Buffer of any size up to 64 KB). Returns false if the channel has failed, or fails now
@@ -89,9 +93,9 @@ class ReliableChannel {
       m.sentAt = now;
       m.tries++;
     }
-    if (!groups.length && this.ackDue) groups.push([]);
+    if (!groups.length && this.acksOwed > 0) groups.push([]);
     if (!groups.length) return [];
-    this.ackDue = false;
+    this.acksOwed = Math.max(0, this.acksOwed - 1);
     const { ack, ackBits } = this.ackFields();
     return groups.map((messages) => ({ ack, ackBits, messages: messages.map(({ seq, more, payload }) => ({ seq, more, payload })) }));
   }
@@ -107,7 +111,7 @@ class ReliableChannel {
   receive({ ack, ackBits, messages }) {
     if (this.failed) return [];
     this.acknowledged(ack, ackBits);
-    if (messages.length) this.ackDue = true; // even for duplicates: our last acknowledgement may have been lost
+    if (messages.length) this.acksOwed = ACK_REPEATS; // even for duplicates: our acknowledgement may have been lost
 
     for (const m of messages) {
       const ahead = (m.seq - this.expected) & 0xffff;

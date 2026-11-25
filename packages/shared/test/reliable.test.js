@@ -104,6 +104,8 @@ test("acknowledgements go out at once, set the resend timer from the round trip,
   assert.deepEqual(b.receive(first), [Buffer.from("hi")]);
   const [ack] = b.poll(); // acknowledgement only, straight away
   assert.deepEqual(ack, { ack: 1, ackBits: 0, messages: [] });
+  assert.deepEqual(b.poll(), [ack]); // and once more, in case the first is lost
+  assert.deepEqual(b.poll(), []);
   clock = 80;
   a.receive(ack);
   assert.equal(a.pending, 0);

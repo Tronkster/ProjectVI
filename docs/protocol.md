@@ -206,7 +206,8 @@ no messages is just an acknowledgement.
   acknowledged is resent after the measured round trip plus four times its variation (300 ms before the first
   measurement, 100 ms to 2 s), doubling for each further resend. Only messages sent once count towards the round
   trip.
-- **Receiving:** acknowledge as soon as a packet with messages arrives, duplicates included. Hold messages that
+- **Receiving:** acknowledge as soon as a packet with messages arrives, duplicates included, and once more on the
+  next tick, so a single lost acknowledgement doesn't cause a resend or inflate the measured round trip. Hold messages that
   arrive early (up to 256 ahead) and deliver in order.
 - **Limits:** a message is at most 64 KB once put back together. More than 256 KB waiting for acknowledgement, or a
   bigger message, drops the session (`KICK` from the server).

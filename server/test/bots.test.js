@@ -158,7 +158,8 @@ test("over a link that loses 20% of packets, every chat line and script event st
       bots[1].client.sendEvent("test:ping", [line]);
       await wait(250); // stays under the 5 chat lines a second limit
     }
-    for (let i = 0; i < 60 && heard.some((h) => h.length < lines.length); i++) await wait(100);
+    // Lost messages are resent with growing gaps, so allow a few seconds for the last ones.
+    for (let i = 0; i < 80 && (heard.some((h) => h.length < lines.length) || events.length < lines.length); i++) await wait(100);
     for (const h of heard) assert.deepEqual(h, lines);
     assert.deepEqual(events, lines.map((line) => [line, bots[1].client.playerId]));
   } finally {
