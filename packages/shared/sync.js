@@ -1,12 +1,12 @@
 // Player sync over UDP: the binary messages a game server and the ProjectVI client exchange.
 // docs/protocol.md ("Player sync") describes the same format for people. Both sides use this file, so
-// they can't drift apart.
+// they can't drift apart; test/sync-vectors.json has example packets for clients written in other languages.
 //
 // Every packet starts with a 4-byte header: "PV", the sync version, and the message type.
 // Numbers are little-endian. Floats are 32-bit. Nothing here is trusted: decoders return null for
 // anything malformed, and the server still checks values (positions, speeds, sequence numbers).
 
-const SYNC_VERSION = 1;
+const SYNC_VERSION = 2;
 const MAGIC_0 = 0x50; // "P"
 const MAGIC_1 = 0x56; // "V"
 const HEADER = 4;
@@ -21,24 +21,56 @@ const MSG = Object.freeze({
   STATE: 4, // client -> server: the local player's state, every tick
   SNAPSHOT: 5, // server -> client: other players' states
   ROSTER_REQUEST: 6, // client -> server: send me the player list
-  ROSTER: 7, // server -> client: player ids and names, one page
+  ROSTER: 7, // server -> client: who's who (id, name, character, host), one page
   BYE: 8, // client -> server: leaving
   KICK: 9, // server -> client: you were removed, with a reason
-  NOTICE: 10 // server -> client: a message to show the player
+  NOTICE: 10, // server -> client: a message to show the player
+  VEHICLE_STATE: 11, // client -> server: a vehicle this client controls, every tick
+  VEHICLES: 12, // server -> client: vehicles near the player
+  VEHICLE_ASSIGN: 13, // server -> client: the vehicle id for a vehicle the client registered
+  PING: 14, // client -> server: once a second, with the client's last round trip time
+  PONG: 15 // server -> client: the answer to PING
 });
 
-// STATE flags
+// Player state flags
 const FLAG = Object.freeze({
   IN_VEHICLE: 1,
   ON_FOOT_MOVING: 2,
   AIMING: 4,
-  DEAD: 8
+  DEAD: 8,
+  CROUCHED: 16,
+  JUMPING: 32,
+  RAGDOLL: 64,
+  SHOOTING: 128,
+  SWIMMING: 256
 });
 
-const STATE_FIELDS_BYTES = 28 + 1 + 4 + 1; // pos, vel, heading (7 floats), flags, vehicle model, seat
+// Roster entry flags
+const PLAYER_FLAG = Object.freeze({
+  HOST: 1 // this player's game runs the story; the others follow it
+});
+
+// Vehicle state flags
+const VEHICLE_FLAG = Object.freeze({
+  ENGINE_ON: 1,
+  LIGHTS: 2,
+  SIREN: 4,
+  HORN: 8,
+  DESTROYED: 16
+});
+
+// Player: position, velocity, heading (7 floats), flags, model, health, armour, weapon, aim point (3 floats), vehicle id, seat
+const STATE_FIELDS_BYTES = 28 + 2 + 4 + 2 + 1 + 4 + 12 + 2 + 1;
+// Vehicle: model, position, rotation (quaternion), velocity, health, steering, flags
+const VEHICLE_FIELDS_BYTES = 4 + 12 + 16 + 12 + 2 + 1 + 1;
+
 const SNAPSHOT_HEADER_BYTES = HEADER + 4 + 4 + 2 + 1; // tick, server time, roster version, count
 const SNAPSHOT_ENTRY_BYTES = 2 + 2 + STATE_FIELDS_BYTES; // player id, last sequence, state
 const SNAPSHOT_MAX_ENTRIES = Math.floor((MAX_PACKET - SNAPSHOT_HEADER_BYTES) / SNAPSHOT_ENTRY_BYTES);
+const VEHICLES_HEADER_BYTES = HEADER + 4 + 4 + 1; // tick, server time, count
+const VEHICLES_ENTRY_BYTES = 2 + 2 + VEHICLE_FIELDS_BYTES; // vehicle id, controlling player id, state
+const VEHICLES_MAX_ENTRIES = Math.floor((MAX_PACKET - VEHICLES_HEADER_BYTES) / VEHICLES_ENTRY_BYTES);
+const VEHICLE_STATE_BYTES = HEADER + 4 + 2 + 2 + 2 + VEHICLE_FIELDS_BYTES; // session, sequence, vehicle id, local id
 
 function header(type, size) {
   const buf = Buffer.alloc(size);
@@ -72,30 +104,77 @@ function readText(buf, offset, lengthBytes) {
   return { text: buf.toString("utf8", start, start + length), next: start + length };
 }
 
-// ---- State: the part of a player the client reports and the server relays ----
+// Whole numbers that must fit a field are clamped rather than wrapped: 70000 health is 65535, not 4464.
+const clampInt = (value, max) => Math.min(max, Math.max(0, Math.round(value) || 0));
+
+function writeVec(buf, offset, v) {
+  buf.writeFloatLE(v.x, offset);
+  buf.writeFloatLE(v.y, offset + 4);
+  buf.writeFloatLE(v.z, offset + 8);
+}
+
+function readVec(buf, offset) {
+  return { x: buf.readFloatLE(offset), y: buf.readFloatLE(offset + 4), z: buf.readFloatLE(offset + 8) };
+}
+
+// ---- Player state: what the client reports about its player and the server relays ----
 
 function writeState(buf, offset, s) {
-  buf.writeFloatLE(s.position.x, offset);
-  buf.writeFloatLE(s.position.y, offset + 4);
-  buf.writeFloatLE(s.position.z, offset + 8);
-  buf.writeFloatLE(s.velocity.x, offset + 12);
-  buf.writeFloatLE(s.velocity.y, offset + 16);
-  buf.writeFloatLE(s.velocity.z, offset + 20);
+  writeVec(buf, offset, s.position);
+  writeVec(buf, offset + 12, s.velocity);
   buf.writeFloatLE(s.heading, offset + 24);
-  buf.writeUInt8(s.flags & 0xff, offset + 28);
-  buf.writeUInt32LE(s.vehicleModel >>> 0, offset + 29);
-  buf.writeUInt8(s.seat & 0xff, offset + 33);
+  buf.writeUInt16LE(s.flags & 0xffff, offset + 28);
+  buf.writeUInt32LE(s.model >>> 0, offset + 30);
+  buf.writeUInt16LE(clampInt(s.health, 0xffff), offset + 34);
+  buf.writeUInt8(clampInt(s.armour, 0xff), offset + 36);
+  buf.writeUInt32LE(s.weapon >>> 0, offset + 37);
+  writeVec(buf, offset + 41, s.aim);
+  buf.writeUInt16LE(s.vehicleId & 0xffff, offset + 53);
+  buf.writeUInt8(s.seat & 0xff, offset + 55);
   return offset + STATE_FIELDS_BYTES;
 }
 
 function readState(buf, offset) {
   return {
-    position: { x: buf.readFloatLE(offset), y: buf.readFloatLE(offset + 4), z: buf.readFloatLE(offset + 8) },
-    velocity: { x: buf.readFloatLE(offset + 12), y: buf.readFloatLE(offset + 16), z: buf.readFloatLE(offset + 20) },
+    position: readVec(buf, offset),
+    velocity: readVec(buf, offset + 12),
     heading: buf.readFloatLE(offset + 24),
-    flags: buf.readUInt8(offset + 28),
-    vehicleModel: buf.readUInt32LE(offset + 29),
-    seat: buf.readUInt8(offset + 33)
+    flags: buf.readUInt16LE(offset + 28),
+    model: buf.readUInt32LE(offset + 30),
+    health: buf.readUInt16LE(offset + 34),
+    armour: buf.readUInt8(offset + 36),
+    weapon: buf.readUInt32LE(offset + 37),
+    aim: readVec(buf, offset + 41),
+    vehicleId: buf.readUInt16LE(offset + 53),
+    seat: buf.readUInt8(offset + 55)
+  };
+}
+
+// ---- Vehicle state: what the controlling client reports about a vehicle ----
+
+function writeVehicle(buf, offset, v) {
+  buf.writeUInt32LE(v.model >>> 0, offset);
+  writeVec(buf, offset + 4, v.position);
+  buf.writeFloatLE(v.rotation.x, offset + 16);
+  buf.writeFloatLE(v.rotation.y, offset + 20);
+  buf.writeFloatLE(v.rotation.z, offset + 24);
+  buf.writeFloatLE(v.rotation.w, offset + 28);
+  writeVec(buf, offset + 32, v.velocity);
+  buf.writeUInt16LE(clampInt(v.health, 0xffff), offset + 44);
+  buf.writeInt8(Math.round(Math.min(1, Math.max(-1, v.steering || 0)) * 127), offset + 46);
+  buf.writeUInt8(v.flags & 0xff, offset + 47);
+  return offset + VEHICLE_FIELDS_BYTES;
+}
+
+function readVehicle(buf, offset) {
+  return {
+    model: buf.readUInt32LE(offset),
+    position: readVec(buf, offset + 4),
+    rotation: { x: buf.readFloatLE(offset + 16), y: buf.readFloatLE(offset + 20), z: buf.readFloatLE(offset + 24), w: buf.readFloatLE(offset + 28) },
+    velocity: readVec(buf, offset + 32),
+    health: buf.readUInt16LE(offset + 44),
+    steering: buf.readInt8(offset + 46) / 127, // 1 full left, -1 full right
+    flags: buf.readUInt8(offset + 47)
   };
 }
 
@@ -153,6 +232,57 @@ function encodeSnapshot({ tick, serverTime, rosterVersion, entries }) {
   return buf;
 }
 
+// vehicleId 0 registers a vehicle the server doesn't know yet; localId is the client's own number for it,
+// echoed back in VEHICLE_ASSIGN.
+function encodeVehicleState({ session, seq, vehicleId, localId, state }) {
+  const buf = header(MSG.VEHICLE_STATE, VEHICLE_STATE_BYTES);
+  buf.writeUInt32LE(session >>> 0, HEADER);
+  buf.writeUInt16LE(seq & 0xffff, HEADER + 4);
+  buf.writeUInt16LE(vehicleId & 0xffff, HEADER + 6);
+  buf.writeUInt16LE(localId & 0xffff, HEADER + 8);
+  writeVehicle(buf, HEADER + 10, state);
+  return buf;
+}
+
+// entries: [{ vehicleId, controller, state }], at most VEHICLES_MAX_ENTRIES. controller 0: nobody.
+function encodeVehicles({ tick, serverTime, entries }) {
+  if (entries.length > VEHICLES_MAX_ENTRIES) throw new Error(`A vehicles message holds at most ${VEHICLES_MAX_ENTRIES} vehicles.`);
+  const buf = header(MSG.VEHICLES, VEHICLES_HEADER_BYTES + entries.length * VEHICLES_ENTRY_BYTES);
+  buf.writeUInt32LE(tick >>> 0, HEADER);
+  buf.writeUInt32LE(serverTime >>> 0, HEADER + 4);
+  buf.writeUInt8(entries.length, HEADER + 8);
+  let offset = VEHICLES_HEADER_BYTES;
+  for (const e of entries) {
+    buf.writeUInt16LE(e.vehicleId, offset);
+    buf.writeUInt16LE(e.controller, offset + 2);
+    offset = writeVehicle(buf, offset + 4, e.state);
+  }
+  return buf;
+}
+
+function encodeVehicleAssign({ localId, vehicleId }) {
+  const buf = header(MSG.VEHICLE_ASSIGN, HEADER + 4);
+  buf.writeUInt16LE(localId & 0xffff, HEADER);
+  buf.writeUInt16LE(vehicleId & 0xffff, HEADER + 2);
+  return buf;
+}
+
+// rtt: the client's last measured round trip in ms (0 before the first PONG).
+function encodePing({ session, clientTime, rtt }) {
+  const buf = header(MSG.PING, HEADER + 4 + 4 + 2);
+  buf.writeUInt32LE(session >>> 0, HEADER);
+  buf.writeUInt32LE(clientTime >>> 0, HEADER + 4);
+  buf.writeUInt16LE(clampInt(rtt, 0xffff), HEADER + 8);
+  return buf;
+}
+
+function encodePong({ clientTime, serverTime }) {
+  const buf = header(MSG.PONG, HEADER + 4 + 4);
+  buf.writeUInt32LE(clientTime >>> 0, HEADER);
+  buf.writeUInt32LE(serverTime >>> 0, HEADER + 4);
+  return buf;
+}
+
 function encodeSessionOnly(type, session) {
   const buf = header(type, HEADER + 4);
   buf.writeUInt32LE(session >>> 0, HEADER);
@@ -162,13 +292,17 @@ function encodeSessionOnly(type, session) {
 const encodeRosterRequest = ({ session }) => encodeSessionOnly(MSG.ROSTER_REQUEST, session);
 const encodeBye = ({ session }) => encodeSessionOnly(MSG.BYE, session);
 
-// players: [{ id, name }]. Returns one or more packets, each a page of the list.
+// Roster entry: player id, flags, character model hash (0: none assigned, the client picks), then the name.
+const ROSTER_ENTRY_FIXED = 2 + 1 + 4 + 1;
+const rosterEntryBytes = (p) => ROSTER_ENTRY_FIXED + Buffer.byteLength(p.name, "utf8");
+
+// players: [{ id, name, character, host }]. Returns one or more packets, each a page of the list.
 function encodeRoster({ rosterVersion, players }) {
   const fixed = HEADER + 2 + 2 + 2 + 2; // version, page, pages, count
   const pages = [[]];
   let size = fixed;
   for (const p of players) {
-    const entry = 2 + 1 + Buffer.byteLength(p.name, "utf8");
+    const entry = rosterEntryBytes(p);
     if (size + entry > MAX_PACKET) {
       pages.push([]);
       size = fixed;
@@ -177,7 +311,7 @@ function encodeRoster({ rosterVersion, players }) {
     size += entry;
   }
   return pages.map((page, index) => {
-    const buf = header(MSG.ROSTER, fixed + page.reduce((n, p) => n + 3 + Buffer.byteLength(p.name, "utf8"), 0));
+    const buf = header(MSG.ROSTER, fixed + page.reduce((n, p) => n + rosterEntryBytes(p), 0));
     buf.writeUInt16LE(rosterVersion & 0xffff, HEADER);
     buf.writeUInt16LE(index, HEADER + 2);
     buf.writeUInt16LE(pages.length, HEADER + 4);
@@ -185,7 +319,9 @@ function encodeRoster({ rosterVersion, players }) {
     let offset = fixed;
     for (const p of page) {
       buf.writeUInt16LE(p.id, offset);
-      offset = writeText(buf, offset + 2, p.name, 1);
+      buf.writeUInt8(p.host ? PLAYER_FLAG.HOST : 0, offset + 2);
+      buf.writeUInt32LE((p.character ?? 0) >>> 0, offset + 3);
+      offset = writeText(buf, offset + 7, p.name, 1);
     }
     return buf;
   });
@@ -256,6 +392,35 @@ function decode(buf) {
         entries
       };
     }
+    case MSG.VEHICLE_STATE:
+      if (buf.length !== VEHICLE_STATE_BYTES) return null;
+      return {
+        type,
+        session: buf.readUInt32LE(HEADER),
+        seq: buf.readUInt16LE(HEADER + 4),
+        vehicleId: buf.readUInt16LE(HEADER + 6),
+        localId: buf.readUInt16LE(HEADER + 8),
+        state: readVehicle(buf, HEADER + 10)
+      };
+    case MSG.VEHICLES: {
+      if (buf.length < VEHICLES_HEADER_BYTES) return null;
+      const count = buf.readUInt8(HEADER + 8);
+      if (buf.length !== VEHICLES_HEADER_BYTES + count * VEHICLES_ENTRY_BYTES) return null;
+      const entries = [];
+      for (let i = 0, offset = VEHICLES_HEADER_BYTES; i < count; i++, offset += VEHICLES_ENTRY_BYTES) {
+        entries.push({ vehicleId: buf.readUInt16LE(offset), controller: buf.readUInt16LE(offset + 2), state: readVehicle(buf, offset + 4) });
+      }
+      return { type, tick: buf.readUInt32LE(HEADER), serverTime: buf.readUInt32LE(HEADER + 4), entries };
+    }
+    case MSG.VEHICLE_ASSIGN:
+      if (buf.length !== HEADER + 4) return null;
+      return { type, localId: buf.readUInt16LE(HEADER), vehicleId: buf.readUInt16LE(HEADER + 2) };
+    case MSG.PING:
+      if (buf.length !== HEADER + 10) return null;
+      return { type, session: buf.readUInt32LE(HEADER), clientTime: buf.readUInt32LE(HEADER + 4), rtt: buf.readUInt16LE(HEADER + 8) };
+    case MSG.PONG:
+      if (buf.length !== HEADER + 8) return null;
+      return { type, clientTime: buf.readUInt32LE(HEADER), serverTime: buf.readUInt32LE(HEADER + 4) };
     case MSG.ROSTER_REQUEST:
     case MSG.BYE:
       if (buf.length !== HEADER + 4) return null;
@@ -266,11 +431,13 @@ function decode(buf) {
       const players = [];
       let offset = HEADER + 8;
       for (let i = 0; i < count; i++) {
-        if (offset + 2 > buf.length) return null;
+        if (offset + 7 > buf.length) return null;
         const id = buf.readUInt16LE(offset);
-        const name = readText(buf, offset + 2, 1);
+        const host = (buf.readUInt8(offset + 2) & PLAYER_FLAG.HOST) !== 0;
+        const character = buf.readUInt32LE(offset + 3);
+        const name = readText(buf, offset + 7, 1);
         if (!name) return null;
-        players.push({ id, name: name.text });
+        players.push({ id, name: name.text, character, host });
         offset = name.next;
       }
       if (offset !== buf.length) return null;
@@ -299,16 +466,47 @@ function seqNewer(a, b) {
   return diff !== 0 && diff < 0x8000;
 }
 
-// ---- Interpolation, for the client: show other players slightly in the past, smoothly ----
+// ---- Rotations ----
+// Headings are degrees, 0 = north (+y), turning counter-clockwise, as the game's scripts use them.
+// A vehicle's rotation is a unit quaternion { x, y, z, w }; a heading is a turn about the up (z) axis.
+
+function quatFromHeading(degrees) {
+  const half = ((Number(degrees) || 0) * Math.PI) / 360;
+  return { x: 0, y: 0, z: Math.sin(half), w: Math.cos(half) };
+}
+
+function headingFromQuat(q) {
+  const yaw = Math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+  return ((yaw * 180) / Math.PI + 360) % 360;
+}
+
+// ---- Interpolation, for the client: show other players and vehicles slightly in the past, smoothly ----
 
 const lerp = (a, b, t) => a + (b - a) * t;
+const lerpVec = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) });
 
 function lerpAngle(a, b, t) {
   let diff = ((b - a) % 360 + 540) % 360 - 180;
   return (a + diff * t + 360) % 360;
 }
 
-// Keeps a short history of one remote player's states and answers "where were they at time t".
+// Blends two rotations. q and -q are the same rotation, so flip one when they point apart, or the blend
+// takes the long way round and the vehicle spins.
+function nlerp(a, b, t) {
+  const sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0 ? -1 : 1;
+  const q = { x: lerp(a.x, b.x * sign, t), y: lerp(a.y, b.y * sign, t), z: lerp(a.z, b.z * sign, t), w: lerp(a.w, b.w * sign, t) };
+  const length = Math.hypot(q.x, q.y, q.z, q.w) || 1;
+  return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length };
+}
+
+function blend(a, b, t) {
+  const out = { ...b, position: lerpVec(a.position, b.position, t), velocity: b.velocity };
+  if (typeof a.heading === "number" && typeof b.heading === "number") out.heading = lerpAngle(a.heading, b.heading, t);
+  if (a.rotation && b.rotation) out.rotation = nlerp(a.rotation, b.rotation, t);
+  return out;
+}
+
+// Keeps a short history of one remote player's or vehicle's states and answers "where was it at time t".
 // delayMs: how far behind the newest snapshot to render (about two snapshot intervals works well).
 // maxExtrapolateMs: how long to keep moving along the last velocity when snapshots stop arriving.
 function createInterpolator({ delayMs = 100, maxExtrapolateMs = 250, historySize = 32 } = {}) {
@@ -329,21 +527,10 @@ function createInterpolator({ delayMs = 100, maxExtrapolateMs = 250, historySize
       for (let i = history.length - 1; i > 0; i--) {
         const a = history[i - 1];
         const b = history[i];
-        if (target >= a.time && target <= b.time) {
-          const t = (target - a.time) / (b.time - a.time || 1);
-          return {
-            ...b.state,
-            position: {
-              x: lerp(a.state.position.x, b.state.position.x, t),
-              y: lerp(a.state.position.y, b.state.position.y, t),
-              z: lerp(a.state.position.z, b.state.position.z, t)
-            },
-            velocity: b.state.velocity,
-            heading: lerpAngle(a.state.heading, b.state.heading, t)
-          };
-        }
+        if (target >= a.time && target <= b.time) return blend(a.state, b.state, (target - a.time) / (b.time - a.time || 1));
       }
       // Past the newest state: extrapolate along its velocity for a short while, then hold.
+      // Rotation is held as it was.
       const last = history[history.length - 1];
       const dt = Math.min(target - last.time, maxExtrapolateMs) / 1000;
       return {
@@ -363,12 +550,20 @@ module.exports = {
   SYNC_MAX_PACKET: MAX_PACKET,
   SYNC_MSG: MSG,
   SYNC_FLAG: FLAG,
+  SYNC_PLAYER_FLAG: PLAYER_FLAG,
+  SYNC_VEHICLE_FLAG: VEHICLE_FLAG,
   SNAPSHOT_MAX_ENTRIES,
+  VEHICLES_MAX_ENTRIES,
   encodeHello,
   encodeWelcome,
   encodeReject,
   encodeState,
   encodeSnapshot,
+  encodeVehicleState,
+  encodeVehicles,
+  encodeVehicleAssign,
+  encodePing,
+  encodePong,
   encodeRosterRequest,
   encodeRoster,
   encodeBye,
@@ -377,5 +572,7 @@ module.exports = {
   decodeSync: decode,
   seqNewer,
   lerpAngle,
+  quatFromHeading,
+  headingFromQuat,
   createInterpolator
 };

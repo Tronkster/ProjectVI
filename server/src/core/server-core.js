@@ -1,6 +1,7 @@
 // The server core: players, commands, exports, entities and the natives scripts call.
 // Runtimes (C# today) plug into it; it doesn't care which language a resource is written in.
 
+const { joaat, quatFromHeading, headingFromQuat } = require("@projectvi/shared");
 const { EventBus } = require("./events");
 
 const DEFAULT_SPAWN = { x: -1012.4, y: 233.8, z: 12.0 };
@@ -72,7 +73,7 @@ class ServerCore {
     this.runtimes = new Set();
     this.commands = new Map(); // name -> { runtime, resource, permission, help }
     this.exports = new Map(); // "resource/name" -> runtime
-    this.entities = new Map(); // id -> { id, kind, model, position, heading, owner }
+    this.entities = new Map(); // id -> entity (see addEntity)
     this.nextEntityId = 1;
   }
 
@@ -167,12 +168,49 @@ class ServerCore {
     return runtime.invokeExport(resource, name, args);
   }
 
-  // ---- Entities (simulated until the game client exists) ----
+  // ---- Entities ----
+  // Vehicles are sent to players over sync (src/sync.js), which also decides which player's client
+  // simulates each one. Ids are 16-bit on the wire.
 
+  // The next free id, counting up and wrapping, so a removed vehicle's id isn't reused straight away.
+  allocateEntityId() {
+    for (let tries = 0; tries < 0xffff; tries++) {
+      const id = this.nextEntityId;
+      this.nextEntityId = id >= 0xffff ? 1 : id + 1;
+      if (!this.entities.has(id)) return id;
+    }
+    throw new Error("There are too many entities (65,535).");
+  }
+
+  // A vehicle spawned by a resource. owner: the resource; it's removed when the resource stops.
   spawnEntity(owner, kind, model, position, heading) {
-    const entity = { id: this.nextEntityId++, kind, model: String(model).slice(0, 64), position, heading: Number(heading) || 0, owner };
+    const name = String(model).slice(0, 64);
+    const rotation = quatFromHeading(heading);
+    return publicEntity(this.addEntity({ kind, model: name, hash: modelHash(name), position: toVec(position), rotation, owner, player: null }));
+  }
+
+  // A vehicle a player's client spawned and registered (a parked car they got into, for example). It has
+  // no resource, only a model hash, and sync removes it once nobody has been near it for a while.
+  registerVehicle(playerId, hash, { position, rotation }) {
+    const model = `0x${(hash >>> 0).toString(16).padStart(8, "0")}`;
+    return this.addEntity({ kind: "vehicle", model, hash: hash >>> 0, position: toVec(position), rotation, owner: null, player: playerId });
+  }
+
+  addEntity(fields) {
+    const entity = {
+      id: this.allocateEntityId(),
+      velocity: { x: 0, y: 0, z: 0 },
+      health: 1000,
+      steering: 0,
+      flags: 0,
+      controller: 0, // the player whose client simulates it, 0 for nobody
+      driver: 0,
+      seq: null, // the controller's last VEHICLE_STATE sequence
+      lastNear: null, // when a player was last in range
+      ...fields
+    };
     this.entities.set(entity.id, entity);
-    return publicEntity(entity);
+    return entity;
   }
 
   removeEntitiesOwnedBy(resource) {
@@ -188,8 +226,20 @@ class ServerCore {
   }
 }
 
-function publicEntity({ id, kind, model, position, heading }) {
-  return { id, kind, model, position, heading };
+// What scripts see. The C# Entity record reads exactly these fields, with model as a string.
+function publicEntity({ id, kind, model, position, rotation }) {
+  return { id, kind, model, position: { ...position }, heading: headingFromQuat(rotation) };
+}
+
+// The wire carries models as hashes. Names are hashed; "0x39da2754" or "970598228" is already a hash.
+function modelHash(model) {
+  if (/^0x[0-9a-f]{1,8}$/i.test(model)) return parseInt(model.slice(2), 16) >>> 0;
+  if (/^\d{1,10}$/.test(model) && Number(model) <= 0xffffffff) return Number(model);
+  return joaat(model);
+}
+
+function toVec(v) {
+  return { x: Number(v?.x) || 0, y: Number(v?.y) || 0, z: Number(v?.z) || 0 };
 }
 
 function requirePlayer(core, id) {
@@ -212,6 +262,12 @@ const NATIVES = {
   "player.position": (core, resource, id) => requirePlayer(core, id).position,
   // The last state the player's client reported over sync, or null (fake players, or nothing sent yet).
   "player.state": (core, resource, id) => requirePlayer(core, id).sync ?? null,
+  // Round trip in ms as the player's client reports it, or null. For display only: a client can lie about it.
+  "player.ping": (core, resource, id) => requirePlayer(core, id).ping ?? null,
+  // The story character model hash sync gave the player, 0 for none (fake players, or more players than characters).
+  "player.character": (core, resource, id) => requirePlayer(core, id).character ?? 0,
+  // True for the player whose game runs the story.
+  "player.isHost": (core, resource, id) => requirePlayer(core, id).host === true,
   "store.get": (core, resource, key) => core.store.get(resource, requireKey(key)),
   "store.set": (core, resource, key, value) => core.store.set(resource, requireKey(key), value),
   "store.delete": (core, resource, key) => core.store.delete(resource, requireKey(key)),
@@ -221,4 +277,4 @@ const NATIVES = {
   "entities.delete": (core, resource, id) => core.entities.delete(Number(id))
 };
 
-module.exports = { ServerCore, PlayerRegistry, splitCommandLine, DEFAULT_SPAWN };
+module.exports = { ServerCore, PlayerRegistry, splitCommandLine, DEFAULT_SPAWN, modelHash };

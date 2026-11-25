@@ -9,17 +9,33 @@ const dgram = require("node:dgram");
 const dns = require("node:dns/promises");
 const crypto = require("node:crypto");
 const { EventEmitter } = require("node:events");
-const { SYNC_MSG, encodeHello, encodeState, encodeRosterRequest, encodeBye, decodeSync, createInterpolator } = require("./sync");
+const {
+  SYNC_MSG,
+  encodeHello,
+  encodeState,
+  encodeVehicleState,
+  encodePing,
+  encodeRosterRequest,
+  encodeBye,
+  decodeSync,
+  createInterpolator
+} = require("./sync");
 
-const UPDATE_MS = 250; // how often timeouts, stream-outs and roster retries are checked
+const UPDATE_MS = 250; // how often timeouts, stream-outs, roster retries and pings are checked
 const ROSTER_RETRY_MS = 1000;
+const PING_MS = 1000;
 const CLOCK_WINDOW = 40; // snapshots kept for the server clock estimate: 2 s at 20 a second
 
 // Events:
 //   "snapshot" (msg)           every snapshot packet, after it's applied
 //   "streamIn" (playerId)      a player came into range: spawn their ped
 //   "streamOut" (playerId)     a player left range or the server: remove their ped
-//   "roster" (names)           Map of player id -> name, after it changed
+//   "vehicleIn" (vehicleId)    a vehicle came into range: spawn it (unless it's one of ours, see vehicleIdFor)
+//   "vehicleOut" (vehicleId)   a vehicle left range or was removed: delete it
+//   "vehicleAssigned" (localId, vehicleId)  the server gave a vehicle we registered its id
+//   "roster" (players)         Map of player id -> { id, name, character, host }, after it changed
+//   "role" ({ character, host }) our own character or host status changed: switch the local player's
+//                              model to `character` (0: keep your own), and run the story only while `host`
 //   "notice" (text)            a message for the player
 //   "close" ({ reason, kicked })
 class SyncClient extends EventEmitter {
@@ -63,9 +79,18 @@ class SyncClient extends EventEmitter {
     this.lastTick = null;
 
     this.remotes = new Map(); // playerId -> { id, interpolator, lastSeen }
-    this.names = new Map(); // playerId -> name, from the roster
-    this.rosterVersion = null; // the version `names` is for
+    this.players = new Map(); // playerId -> { id, name, character, host }, from the roster
+    this.rosterVersion = null; // the version `players` is for
+    this.character = 0; // the character model the server gave us (0: none, keep our own)
+    this.isHost = false;
     this.roster = null; // a roster being collected: { version, pages: Map(page -> players), askedAt }
+
+    this.vehicles = new Map(); // vehicleId -> { id, model, controller, interpolator, lastSeen }
+    this.assigned = new Map(); // localId -> vehicleId, for vehicles this client registered
+    this.vehicleSeq = 0;
+
+    this.rtt = null; // round trip to the server in ms, smoothed; null before the first PONG
+    this.lastPingAt = -Infinity;
 
     this.stats = { snapshots: 0, missedTicks: 0 };
   }
@@ -154,6 +179,21 @@ class SyncClient extends EventEmitter {
       case SYNC_MSG.SNAPSHOT:
         if (this.session !== null) this.onSnapshot(msg);
         break;
+      case SYNC_MSG.VEHICLES:
+        if (this.session !== null) this.onVehicles(msg);
+        break;
+      case SYNC_MSG.VEHICLE_ASSIGN:
+        if (this.session !== null && msg.localId !== 0 && msg.vehicleId !== 0 && this.assigned.get(msg.localId) !== msg.vehicleId) {
+          this.assigned.set(msg.localId, msg.vehicleId);
+          this.emit("vehicleAssigned", msg.localId, msg.vehicleId);
+        }
+        break;
+      case SYNC_MSG.PONG: {
+        if (this.session === null) break;
+        const sample = ((this.now() - this.startedAt) >>> 0) - msg.clientTime;
+        if (sample >= 0 && sample < 60_000) this.rtt = this.rtt === null ? sample : this.rtt * 0.8 + sample * 0.2;
+        break;
+      }
       case SYNC_MSG.ROSTER:
         if (this.session !== null) this.onRoster(msg);
         break;
@@ -190,6 +230,35 @@ class SyncClient extends EventEmitter {
     this.emit("snapshot", msg);
   }
 
+  onVehicles(msg) {
+    this.observeServerTime(msg.serverTime);
+    const now = this.now();
+    for (const entry of msg.entries) {
+      let vehicle = this.vehicles.get(entry.vehicleId);
+      // A different model under a known id is a new vehicle that reused the id: replace the old one.
+      if (vehicle && vehicle.model !== entry.state.model) {
+        this.forgetVehicle(entry.vehicleId);
+        vehicle = null;
+      }
+      if (!vehicle) {
+        vehicle = { id: entry.vehicleId, model: entry.state.model, controller: entry.controller, interpolator: createInterpolator({ delayMs: this.delayMs }), lastSeen: now };
+        this.vehicles.set(entry.vehicleId, vehicle);
+        this.emit("vehicleIn", entry.vehicleId);
+      }
+      vehicle.controller = entry.controller;
+      vehicle.lastSeen = now;
+      vehicle.interpolator.push(msg.serverTime, entry.state);
+    }
+  }
+
+  // A vehicle that left range or was removed. If it was one we registered, its id is forgotten too: the
+  // server may have removed it and given the id to another vehicle, and our next report must register afresh.
+  forgetVehicle(id) {
+    this.vehicles.delete(id);
+    for (const [localId, vehicleId] of this.assigned) if (vehicleId === id) this.assigned.delete(localId);
+    this.emit("vehicleOut", id);
+  }
+
   requestRoster(version) {
     const now = this.now();
     if (this.roster?.version === version && now - this.roster.askedAt < ROSTER_RETRY_MS) return;
@@ -206,10 +275,24 @@ class SyncClient extends EventEmitter {
     }
     this.roster.pages.set(msg.page, msg.players);
     if (this.roster.pages.size < msg.pages) return;
-    this.names = new Map([...this.roster.pages.values()].flat().map((p) => [p.id, p.name]));
+    this.players = new Map([...this.roster.pages.values()].flat().map((p) => [p.id, p]));
     this.rosterVersion = msg.rosterVersion;
     this.roster = null;
-    this.emit("roster", this.names);
+    this.emit("roster", this.players);
+
+    const me = this.players.get(this.playerId);
+    const role = { character: me?.character ?? 0, host: me?.host ?? false };
+    if (role.character !== this.character || role.host !== this.isHost) {
+      this.character = role.character;
+      this.isHost = role.host;
+      this.emit("role", role);
+    }
+  }
+
+  // The id of the player whose game runs the story, or null before the roster arrives.
+  get hostId() {
+    for (const p of this.players.values()) if (p.host) return p.id;
+    return null;
   }
 
   // ---- Server clock ----
@@ -234,7 +317,39 @@ class SyncClient extends EventEmitter {
   view() {
     const t = this.serverNow();
     if (t === null) return [];
-    return [...this.remotes.values()].map((r) => ({ id: r.id, name: this.names.get(r.id) ?? null, state: r.interpolator.sample(t) }));
+    return [...this.remotes.values()].map((r) => ({ id: r.id, name: this.players.get(r.id)?.name ?? null, state: r.interpolator.sample(t) }));
+  }
+
+  // Where to put each vehicle this frame: [{ id, controller, mine, state }]. `mine` vehicles are ones this
+  // client simulates and reports with sendVehicleState; the rest are driven from here.
+  vehicleView() {
+    const t = this.serverNow();
+    if (t === null) return [];
+    return [...this.vehicles.values()].map((v) => ({ id: v.id, controller: v.controller, mine: v.controller === this.playerId, state: v.interpolator.sample(t) }));
+  }
+
+  // ---- Vehicles this client controls ----
+
+  // The server's id for a vehicle this client registered under localId, or 0 if it hasn't answered yet.
+  vehicleIdFor(localId) {
+    return this.assigned.get(localId) ?? 0;
+  }
+
+  // Vehicles the server says this client should simulate and report: ones it drives, and empty ones nearby.
+  controlledVehicles() {
+    return [...this.vehicles.values()].filter((v) => v.controller === this.playerId).map((v) => v.id);
+  }
+
+  // Reports a vehicle this client simulates. Pass { vehicleId } for one the server knows, or { localId } (a
+  // number 1-65535 this client picks) for one it spawned itself, such as a parked car the player got into:
+  // the server registers it and answers with VEHICLE_ASSIGN, after which the id is used automatically.
+  sendVehicleState({ vehicleId = 0, localId = 0 }, state) {
+    if (!this.connected) return false;
+    const id = vehicleId || this.vehicleIdFor(localId);
+    if (!id && !localId) return false;
+    this.vehicleSeq = (this.vehicleSeq + 1) & 0xffff;
+    this.send(encodeVehicleState({ session: this.session, seq: this.vehicleSeq, vehicleId: id, localId, state }));
+    return true;
   }
 
   // ---- Housekeeping ----
@@ -249,6 +364,13 @@ class SyncClient extends EventEmitter {
         this.remotes.delete(id);
         this.emit("streamOut", id);
       }
+    }
+    for (const [id, vehicle] of this.vehicles) {
+      if (now - vehicle.lastSeen > this.streamOutMs) this.forgetVehicle(id);
+    }
+    if (now - this.lastPingAt >= PING_MS) {
+      this.lastPingAt = now;
+      this.send(encodePing({ session: this.session, clientTime: (now - this.startedAt) >>> 0, rtt: this.rtt ?? 0 }));
     }
     // A lost roster page: ask again.
     if (this.roster && now - this.roster.askedAt >= ROSTER_RETRY_MS) this.requestRoster(this.roster.version);
@@ -274,6 +396,7 @@ class SyncClient extends EventEmitter {
     });
     for (const id of this.remotes.keys()) this.emit("streamOut", id);
     this.remotes.clear();
+    for (const id of [...this.vehicles.keys()]) this.forgetVehicle(id);
     this.emit("close", { reason, kicked });
     return this.closing;
   }

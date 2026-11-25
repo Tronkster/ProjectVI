@@ -23,6 +23,12 @@ function validateConfig(raw) {
   if (!isInt(streamRadius, 50, 10000)) errors.push("[sync] stream_radius must be a number of metres between 50 and 10000.");
   const timeoutSeconds = sy.timeout_seconds ?? 10;
   if (!isInt(timeoutSeconds, 3, 120)) errors.push("[sync] timeout_seconds must be a number between 3 and 120.");
+  // Story characters, given out in order: the first player gets the first. Placeholder names until the game's
+  // model names are known; a hash such as "0x39da2754" works too.
+  const characters = sy.characters ?? ["lucia", "jason"];
+  if (!Array.isArray(characters) || characters.length > 16 || !characters.every((c) => typeof c === "string" && c.trim() && c.length <= 64)) {
+    errors.push("[sync] characters must be a list of up to 16 model names, for example [\"lucia\", \"jason\"].");
+  }
 
   const name = text(s.name, 64);
   if (!name) errors.push("[server] name is required (1-64 characters).");
@@ -71,7 +77,7 @@ function validateConfig(raw) {
     region: text(s.region, 8).toUpperCase(),
     master: { url: masterUrl, public: m.public !== false },
     resources: { start: [...new Set(start)] },
-    sync: { enabled: sy.enabled !== false, tickRate, streamRadius, timeoutSeconds },
+    sync: { enabled: sy.enabled !== false, tickRate, streamRadius, timeoutSeconds, characters: Array.isArray(characters) ? characters.map((c) => String(c).trim()) : [] },
     scripting: {
       dotnetHost: text(sc.dotnet_host, 1024),
       watch: sc.watch !== false,

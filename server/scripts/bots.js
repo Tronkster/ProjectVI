@@ -13,13 +13,19 @@
 
 const http = require("node:http");
 const { parseArgs } = require("node:util");
-const { SYNC_VERSION, SYNC_FLAG, joaat, validatePlayerName } = require("@projectvi/shared");
+const { SYNC_VERSION, SYNC_FLAG, SYNC_VEHICLE_FLAG, joaat, quatFromHeading, headingFromQuat, validatePlayerName } = require("@projectvi/shared");
 const { SyncClient } = require("@projectvi/shared/sync-client");
 const { DEFAULT_SPAWN } = require("../src/core/server-core");
 
 const WALK_SPEED = 1.4; // m/s
 const RUN_SPEED = 5;
-const BOT_CAR = joaat("sultan"); // a GTA V name: any hash will do until the client maps models
+// GTA V names: any hash will do until the client maps models.
+const BOT_CAR = joaat("sultan");
+const UNARMED = joaat("weapon_unarmed");
+const OWN_CAR = 1; // the local id a driving bot registers its car under
+// For labels on the live map: the server's default story characters.
+const CHARACTER_NAMES = new Map(["lucia", "jason"].map((name) => [joaat(name), name[0].toUpperCase() + name.slice(1)]));
+const characterName = (hash) => (hash ? (CHARACTER_NAMES.get(hash) ?? `0x${hash.toString(16)}`) : "");
 // The server takes 5 HELLOs a second from one address, and every bot shares ours.
 const JOINS_PER_SECOND = 4;
 const MODES = ["walk", "drive", "idle", "mixed"];
@@ -31,7 +37,13 @@ function headingOf(vx, vy) {
   return ((Math.atan2(-vx, vy) * 180) / Math.PI + 360) % 360;
 }
 
-// Moves one bot around `center`. step(dt) advances it dt seconds and returns its state for a STATE packet.
+// A player state with everything a bot doesn't vary filled in. Model 0 leaves the look to each client.
+function playerState(position, velocity, heading, flags, extra = {}) {
+  return { position, velocity, heading, flags, model: 0, health: 200, armour: 0, weapon: UNARMED, aim: ZERO, vehicleId: 0, seat: 0, ...extra };
+}
+
+// Moves one bot around `center`. step(dt) advances it dt seconds and returns { player, vehicle }: the
+// player's state for STATE and, while driving, the car's for VEHICLE_STATE (null on foot).
 // random returns a number in [0, 1); tests pass their own to make movement repeatable.
 function createMover({ mode, center, spread, random = Math.random }) {
   const pointNear = (c, radius) => {
@@ -52,7 +64,19 @@ function createMover({ mode, center, spread, random = Math.random }) {
         angle += (direction * speed * dt) / radius;
         const position = { x: middle.x + Math.cos(angle) * radius, y: middle.y + Math.sin(angle) * radius, z: middle.z };
         const velocity = { x: -Math.sin(angle) * speed * direction, y: Math.cos(angle) * speed * direction, z: 0 };
-        return { position, velocity, heading: headingOf(velocity.x, velocity.y), flags: SYNC_FLAG.IN_VEHICLE, vehicleModel: BOT_CAR, seat: 0 };
+        const heading = headingOf(velocity.x, velocity.y);
+        return {
+          player: playerState(position, velocity, heading, SYNC_FLAG.IN_VEHICLE),
+          vehicle: {
+            model: BOT_CAR,
+            position,
+            rotation: quatFromHeading(heading),
+            velocity,
+            health: 1000,
+            steering: direction * 0.3,
+            flags: SYNC_VEHICLE_FLAG.ENGINE_ON | SYNC_VEHICLE_FLAG.LIGHTS
+          }
+        };
       }
     };
   }
@@ -64,7 +88,7 @@ function createMover({ mode, center, spread, random = Math.random }) {
     return {
       step(dt) {
         if (random() < dt * 0.2) heading = random() * 360; // look around now and then
-        return { position: { ...position }, velocity: ZERO, heading, flags: 0, vehicleModel: 0, seat: 0 };
+        return { player: playerState({ ...position }, ZERO, heading, 0), vehicle: null };
       }
     };
   }
@@ -99,12 +123,14 @@ function createMover({ mode, center, spread, random = Math.random }) {
         }
       }
       const flags = velocity === ZERO ? 0 : SYNC_FLAG.ON_FOOT_MOVING;
-      return { position: { ...position }, velocity, heading, flags, vehicleModel: 0, seat: 0 };
+      return { player: playerState({ ...position }, velocity, heading, flags), vehicle: null };
     }
   };
 }
 
-// One bot: a sync client that sends its mover's state every tick once it has joined.
+// One bot: a sync client that sends its mover's state every tick once it has joined. It plays the story
+// character the server gives it, as the game client will. A driving bot registers its car, and any empty
+// vehicle the server hands the bot is reported standing still.
 function createBot({ host, port, name, mover, clientOptions = {} }) {
   const client = new SyncClient({ host, port, name, ...clientOptions });
   let state = null;
@@ -121,9 +147,19 @@ function createBot({ host, port, name, mover, clientOptions = {} }) {
       let last = performance.now();
       const tick = () => {
         const now = performance.now();
-        state = mover.step((now - last) / 1000);
+        const { player, vehicle } = mover.step((now - last) / 1000);
         last = now;
-        client.sendState(state);
+        player.model = client.character || player.model;
+        if (vehicle) {
+          client.sendVehicleState({ localId: OWN_CAR }, vehicle);
+          player.vehicleId = client.vehicleIdFor(OWN_CAR); // 0 until the server has answered
+        }
+        state = player;
+        client.sendState(player);
+        const own = client.vehicleIdFor(OWN_CAR);
+        for (const v of client.vehicleView()) {
+          if (v.mine && v.id !== own) client.sendVehicleState({ vehicleId: v.id }, { ...v.state, velocity: ZERO });
+        }
       };
       tick();
       timer = setInterval(tick, 1000 / tickRate);
@@ -152,6 +188,13 @@ function draw(f) {
   ctx.beginPath(); ctx.arc(w / 2, h / 2, f.spread * scale, 0, 7); ctx.stroke();
   ctx.strokeStyle = "#666";
   for (const t of f.truth) { ctx.beginPath(); ctx.arc(sx(t.x), sy(t.y), 7, 0, 7); ctx.stroke(); }
+  for (const v of f.vehicles) {
+    const len = Math.max(4.6 * scale, 12), wid = Math.max(2 * scale, 6);
+    ctx.save(); ctx.translate(sx(v.x), sy(v.y)); ctx.rotate((-v.heading * Math.PI) / 180);
+    ctx.strokeStyle = "#f4a340"; ctx.strokeRect(-wid / 2, -len / 2, wid, len);
+    ctx.restore();
+    ctx.fillStyle = "#888"; ctx.fillText(v.controller, sx(v.x) + 8, sy(v.y) + 14);
+  }
   for (const p of f.seen) {
     const x = sx(p.x), y = sy(p.y), a = (p.heading * Math.PI) / 180;
     ctx.fillStyle = ctx.strokeStyle = p.inVehicle ? "#f4a340" : "#5aa9f4";
@@ -160,8 +203,9 @@ function draw(f) {
     ctx.fillText(p.name, x + 8, y - 6);
   }
   if (f.me) { ctx.fillStyle = "#fff"; ctx.fillRect(sx(f.me.x) - 4, sy(f.me.y) - 4, 8, 8); }
-  legend.textContent = f.observer + " (white square) sees " + f.seen.length + " players, drawn " + f.delayMs +
-    " ms in the past as the client would. Grey rings: where the bots really are. Blue on foot, orange driving.";
+  legend.textContent = f.observer + (f.role ? " (" + f.role + ")" : "") + " (white square) sees " + f.seen.length + " players and " + f.vehicles.length +
+    " vehicles, drawn " + f.delayMs + " ms in the past as the client would. Grey rings: where the bots really are. " +
+    "Blue on foot, orange driving. ★ is the host. Boxes are vehicles, labelled with the player who simulates them.";
 }
 </script></body></html>`;
 
@@ -172,12 +216,19 @@ function startView({ port, observer, bots, center, spread }) {
     center,
     spread,
     me: observer.state?.position ?? null,
+    role: [characterName(observer.client.character), observer.client.isHost ? "host" : ""].filter(Boolean).join(", "),
     seen: observer.client.view().map(({ id, name, state }) => ({
-      name: name ?? `#${id}`,
+      name: [name ?? `#${id}`, characterName(state.model) && `(${characterName(state.model)})`, observer.client.hostId === id ? "★" : ""].filter(Boolean).join(" "),
       x: state.position.x,
       y: state.position.y,
       heading: state.heading,
       inVehicle: (state.flags & SYNC_FLAG.IN_VEHICLE) !== 0
+    })),
+    vehicles: observer.client.vehicleView().map(({ controller, state }) => ({
+      x: state.position.x,
+      y: state.position.y,
+      heading: headingFromQuat(state.rotation),
+      controller: controller === observer.client.playerId ? observer.name : (observer.client.players.get(controller)?.name ?? (controller ? `#${controller}` : "nobody"))
     })),
     truth: bots.filter((b) => b !== observer && b.client.connected && b.state).map((b) => ({ x: b.state.position.x, y: b.state.position.y }))
   });
@@ -291,10 +342,14 @@ async function main() {
     const missed = bots.reduce((n, b) => n + b.client.stats.missedTicks, 0);
     const now = performance.now();
     const perBot = live.length ? (snapshots - previous.snapshots) / ((now - previous.at) / 1000) / live.length : 0;
-    const sees = live.length ? live.reduce((n, b) => n + b.client.remotes.size, 0) / live.length : 0;
+    const average = (fn) => (live.length ? live.reduce((n, b) => n + fn(b), 0) / live.length : 0);
+    const sees = average((b) => b.client.remotes.size);
+    const vehicles = average((b) => b.client.vehicles.size);
+    const rtt = average((b) => b.client.rtt ?? 0);
     console.log(
-      `${new Date().toLocaleTimeString()}  ${live.length}/${bots.length} in · each sees ${sees.toFixed(1)} others · ` +
-        `${perBot.toFixed(1)} snapshots/s each · ${missed - previous.missed} ticks missed`
+      `${new Date().toLocaleTimeString()}  ${live.length}/${bots.length} in · each sees ${sees.toFixed(1)} others and ` +
+        `${vehicles.toFixed(1)} vehicles · ${perBot.toFixed(1)} snapshots/s each · ${missed - previous.missed} ticks missed · ` +
+        `round trip ${rtt.toFixed(1)} ms`
     );
     previous = { snapshots, missed, at: now };
   }, 5000);
