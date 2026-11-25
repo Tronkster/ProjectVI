@@ -3,5 +3,6 @@ module.exports = {
   ...require("./names"),
   ...require("./paths"),
   ...require("./manifest"),
-  ...require("./registry")
+  ...require("./registry"),
+  ...require("./sync")
 };

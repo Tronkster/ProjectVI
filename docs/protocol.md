@@ -114,3 +114,36 @@ The file's bytes. Files are addressed by hash, so they can be cached forever.
 | `PROJECTVI_MODS` | path to the enabled public mods list (see [making-mods.md](making-mods.md)) |
 
 The launcher stores server content but never runs it. Running it is the ProjectVI client's job.
+
+## Player sync (UDP on the game port)
+
+`GET /projectvi/info` includes `sync: { version, port, tickRate }` when sync is on. The format is defined in
+`packages/shared/sync.js`, which both sides use. Every packet starts with `"PV"`, the sync version (1) and a type
+byte; numbers are little-endian, floats 32-bit, and packets stay under 1,200 bytes.
+
+| Type | Direction | Contents |
+| --- | --- | --- |
+| `HELLO` 1 | client → server | nonce, name. Resent until answered; a repeat gets the same session |
+| `WELCOME` 2 | server → client | nonce, session, player id, tick rate, server time (ms) |
+| `REJECT` 3 | server → client | nonce, reason (bad name, server full) |
+| `STATE` 4 | client → server | session, sequence, client time, then the state below. Every tick |
+| `SNAPSHOT` 5 | server → client | tick, server time, roster version, then up to 31 × (player id, sequence, state). Every tick, split over several packets if needed |
+| `ROSTER_REQUEST` 6 | client → server | session. Sent when a snapshot's roster version changes |
+| `ROSTER` 7 | server → client | roster version, page, pages, then (player id, name) pairs |
+| `BYE` 8 | client → server | session |
+| `KICK` 9 | server → client | reason |
+| `NOTICE` 10 | server → client | text to show the player |
+
+State: position (x, y, z), velocity (x, y, z), heading in degrees, flags (1 in vehicle, 2 moving on foot,
+4 aiming, 8 dead), vehicle model hash, seat.
+
+Server rules:
+
+- Packets after `HELLO` must carry the session and come from the address that joined; anything else is ignored.
+- States with an older sequence (16-bit, wrapping), non-finite numbers, coordinates beyond ±50,000 or speeds over
+  250 m/s are dropped. Up to 90 states a second per player; 5 `HELLO`s a second per IP.
+- Players only receive others within `[sync] stream_radius` (500 m by default). A player silent for
+  `timeout_seconds` (10) is dropped and sent `KICK`.
+- Nothing on this channel is reliable. Identity isn't verified yet: a player's only identifier is `session:<hex>`.
+- Clients should render others about 100 ms in the past and interpolate; `createInterpolator` in the same file
+  does this.

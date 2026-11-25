@@ -2,7 +2,7 @@
 
 const fs = require("node:fs");
 const http = require("node:http");
-const { PROTOCOL_VERSION } = require("@projectvi/shared");
+const { PROTOCOL_VERSION, SYNC_VERSION } = require("@projectvi/shared");
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -21,7 +21,8 @@ function createGameServer({ config, content, getPlayers = () => 0 }) {
         contentBytes: content.totalBytes,
         fileCount: content.fileCount,
         players: getPlayers(),
-        maxPlayers: config.maxPlayers
+        maxPlayers: config.maxPlayers,
+        ...(config.sync?.enabled ? { sync: { version: SYNC_VERSION, port: config.port, tickRate: config.sync.tickRate } } : {})
       });
     }
 
